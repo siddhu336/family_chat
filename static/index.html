@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-  <link rel="stylesheet" href="/static/style.css?v=12">
+  <link rel="stylesheet" href="/static/style.css?v=13">
 </head>
 <body>
   <main id="offline-view" class="centered hidden">
@@ -35,6 +35,13 @@
         <button id="auth-button" type="submit">Sign in</button>
         <p id="auth-error" class="error"></p>
       </form>
+      <div id="passkey-login-area" class="passkey-login-area">
+        <span>or</span>
+        <button id="passkey-login-button" type="button" data-icon="fingerprint">
+          <span>Sign in with phone</span>
+        </button>
+        <small>Use your fingerprint, face unlock, or phone screen lock.</small>
+      </div>
     </section>
   </main>
 
@@ -121,6 +128,10 @@
         </div>
       </div>
       <label>Display name<input id="profile-display-name" required maxlength="50" autocomplete="name"></label>
+      <button id="passkey-register-button" class="passkey-setup-button" type="button" data-icon="fingerprint">
+        <span>Set up phone sign-in</span>
+      </button>
+      <small class="passkey-help">Use this phone's fingerprint, face unlock, or screen lock next time.</small>
       <p id="profile-error" class="error"></p>
       <div class="dialog-actions">
         <button id="cancel-profile" type="button" class="secondary">Cancel</button>
@@ -171,6 +182,6 @@
     </form>
   </dialog>
 
-  <script src="/static/app.js?v=14"></script>
+  <script src="/static/app.js?v=15"></script>
 </body>
 </html>

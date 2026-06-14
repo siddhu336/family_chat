@@ -29,6 +29,7 @@ const icons = {
   camera: '<path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3Z"/><circle cx="12" cy="13" r="3"/>',
   download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/>',
+  fingerprint: '<path d="M12 11a2 2 0 0 1 2 2c0 2.5-.5 5-1.5 7"/><path d="M8.2 21a16 16 0 0 0 1.8-8 2 2 0 0 1 4 0"/><path d="M5 18a20 20 0 0 0 1-5 6 6 0 0 1 12 0c0 2-.2 4-.7 6"/><path d="M4.5 8.5a9 9 0 0 1 15 0"/><path d="M8 4.5a9 9 0 0 1 8 0"/>',
   key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m12 12 8-8"/><path d="m15 7 2 2"/><path d="m18 4 2 2"/>',
   "key-round": '<path d="M21 2 13.6 9.4"/><circle cx="7.5" cy="15.5" r="5.5"/><path d="m18 5 2 2"/><path d="m15 8 2 2"/>',
   "log-out": '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>',
@@ -93,6 +94,72 @@ async function api(path, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.detail || "Something went wrong");
   return data;
+}
+
+function bufferToBase64url(value) {
+  if (!value) return null;
+  const bytes = new Uint8Array(value);
+  let binary = "";
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64urlToBuffer(value) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(base64);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function prepareCreationOptions(options) {
+  if (PublicKeyCredential.parseCreationOptionsFromJSON) {
+    return PublicKeyCredential.parseCreationOptionsFromJSON(options);
+  }
+  return {
+    ...options,
+    challenge: base64urlToBuffer(options.challenge),
+    user: { ...options.user, id: base64urlToBuffer(options.user.id) },
+    excludeCredentials: (options.excludeCredentials || []).map((credential) => ({
+      ...credential,
+      id: base64urlToBuffer(credential.id),
+    })),
+  };
+}
+
+function prepareRequestOptions(options) {
+  if (PublicKeyCredential.parseRequestOptionsFromJSON) {
+    return PublicKeyCredential.parseRequestOptionsFromJSON(options);
+  }
+  return {
+    ...options,
+    challenge: base64urlToBuffer(options.challenge),
+    allowCredentials: (options.allowCredentials || []).map((credential) => ({
+      ...credential,
+      id: base64urlToBuffer(credential.id),
+    })),
+  };
+}
+
+function serializeCredential(credential) {
+  const response = {
+    clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+  };
+  if ("attestationObject" in credential.response) {
+    response.attestationObject = bufferToBase64url(credential.response.attestationObject);
+    response.transports = credential.response.getTransports?.() || [];
+  } else {
+    response.authenticatorData = bufferToBase64url(credential.response.authenticatorData);
+    response.signature = bufferToBase64url(credential.response.signature);
+    response.userHandle = bufferToBase64url(credential.response.userHandle);
+  }
+  return {
+    id: credential.id,
+    rawId: bufferToBase64url(credential.rawId),
+    type: credential.type,
+    authenticatorAttachment: credential.authenticatorAttachment,
+    response,
+    clientExtensionResults: credential.getClientExtensionResults(),
+  };
 }
 
 function initials(name) {
@@ -182,6 +249,10 @@ function showAuth() {
     ? "Create the first administrator account."
     : "Sign in with your family account.";
   document.querySelector("#auth-button").textContent = needsSetup ? "Create family chat" : "Sign in";
+  document.querySelector("#passkey-login-area").classList.toggle(
+    "hidden",
+    needsSetup || !window.PublicKeyCredential,
+  );
 }
 
 function renderContacts() {
@@ -868,6 +939,35 @@ authForm.addEventListener("submit", async (event) => {
   }
 });
 
+document.querySelector("#passkey-login-button").addEventListener("click", async () => {
+  const error = document.querySelector("#auth-error");
+  error.textContent = "";
+  if (!window.PublicKeyCredential) {
+    error.textContent = "This browser does not support passkeys.";
+    return;
+  }
+  try {
+    const ceremony = await api("/api/passkeys/authenticate/options", {
+      method: "POST",
+    });
+    const credential = await navigator.credentials.get({
+      publicKey: prepareRequestOptions(ceremony.options),
+    });
+    await api("/api/passkeys/authenticate/verify", {
+      method: "POST",
+      body: JSON.stringify({
+        ceremony_id: ceremony.ceremony_id,
+        credential: serializeCredential(credential),
+      }),
+    });
+    await initialize();
+  } catch (exception) {
+    error.textContent = exception.name === "NotAllowedError"
+      ? "Phone sign-in was cancelled or no passkey is registered."
+      : exception.message;
+  }
+});
+
 document.querySelector("#message-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!selectedContact) return;
@@ -970,6 +1070,38 @@ document.querySelector("#logout-button").addEventListener("click", async () => {
   contacts = [];
   updateAppBadge();
   showAuth();
+});
+
+document.querySelector("#passkey-register-button").addEventListener("click", async () => {
+  const error = document.querySelector("#profile-error");
+  error.textContent = "";
+  if (!window.PublicKeyCredential) {
+    error.textContent = "This browser does not support passkeys.";
+    return;
+  }
+  try {
+    const ceremony = await api("/api/passkeys/register/options", {
+      method: "POST",
+    });
+    const credential = await navigator.credentials.create({
+      publicKey: prepareCreationOptions(ceremony.options),
+    });
+    await api("/api/passkeys/register/verify", {
+      method: "POST",
+      body: JSON.stringify({
+        ceremony_id: ceremony.ceremony_id,
+        credential: serializeCredential(credential),
+      }),
+    });
+    profileDialog.close();
+    showNotificationStatus(
+      "Phone sign-in is ready. You can now use fingerprint, face unlock, or your screen lock.",
+    );
+  } catch (exception) {
+    error.textContent = exception.name === "NotAllowedError"
+      ? "Passkey setup was cancelled."
+      : `Could not set up phone sign-in: ${exception.message}`;
+  }
 });
 
 function clearProfilePreviewUrl() {

@@ -150,3 +150,19 @@ recipient. The default maximum attachment size is 10 MB.
 
 The web app is installable as a PWA. HTTPS plus the VAPID settings enable
 notifications when the installed app is closed on supported browsers.
+
+## Passkeys
+
+Passkeys let family members sign in with their phone fingerprint, face unlock,
+or screen lock. Configure these values for the final HTTPS hostname:
+
+```dotenv
+WEBAUTHN_RP_ID=chat.yourdomain.com
+WEBAUTHN_RP_NAME=Family Chat
+WEBAUTHN_ORIGIN=https://chat.yourdomain.com
+```
+
+For this deployment, use `marschat.ssnapps.com` as the RP ID and
+`https://marschat.ssnapps.com` as the origin. These values must exactly match
+the hostname family members use. After signing in normally once, open the
+profile dialog and choose **Set up phone sign-in**.

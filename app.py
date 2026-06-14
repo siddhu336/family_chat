@@ -27,6 +27,20 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from pywebpush import WebPushException, webpush
+from webauthn import (
+    base64url_to_bytes,
+    generate_authentication_options,
+    generate_registration_options,
+    options_to_json,
+    verify_authentication_response,
+    verify_registration_response,
+)
+from webauthn.helpers.structs import (
+    AuthenticatorSelectionCriteria,
+    PublicKeyCredentialDescriptor,
+    ResidentKeyRequirement,
+    UserVerificationRequirement,
+)
 
 from settings import settings
 
@@ -121,6 +135,37 @@ def initialize_database() -> None:
                 created_at BIGINT NOT NULL
             );
             """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS passkeys (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                credential_id BYTEA UNIQUE NOT NULL,
+                public_key BYTEA NOT NULL,
+                sign_count BIGINT NOT NULL DEFAULT 0,
+                transports JSONB NOT NULL DEFAULT '[]'::jsonb,
+                device_type TEXT,
+                backed_up BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at BIGINT NOT NULL,
+                last_used_at BIGINT
+            );
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webauthn_challenges (
+                id UUID PRIMARY KEY,
+                challenge BYTEA NOT NULL,
+                user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+                purpose TEXT NOT NULL,
+                expires_at BIGINT NOT NULL
+            );
+            """
+        )
+        connection.execute(
+            "DELETE FROM webauthn_challenges WHERE expires_at < %s",
+            (int(time.time()),),
         )
         connection.execute(
             "ALTER TABLE messages ADD COLUMN IF NOT EXISTS recipient_id BIGINT REFERENCES users(id) ON DELETE CASCADE"
@@ -245,6 +290,69 @@ def user_from_request(request: Request) -> dict:
     return user
 
 
+def create_webauthn_challenge(
+    challenge: bytes,
+    purpose: str,
+    user_id: int | None = None,
+) -> str:
+    ceremony_id = uuid.uuid4()
+    with db() as connection:
+        connection.execute(
+            "DELETE FROM webauthn_challenges WHERE expires_at < %s",
+            (int(time.time()),),
+        )
+        connection.execute(
+            """
+            INSERT INTO webauthn_challenges (id, challenge, user_id, purpose, expires_at)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (
+                ceremony_id,
+                challenge,
+                user_id,
+                purpose,
+                int(time.time()) + 300,
+            ),
+        )
+    return str(ceremony_id)
+
+
+def consume_webauthn_challenge(
+    ceremony_id: str,
+    purpose: str,
+    user_id: int | None = None,
+) -> dict:
+    try:
+        challenge_id = uuid.UUID(ceremony_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid passkey request") from None
+    with db() as connection:
+        if user_id is None:
+            row = connection.execute(
+                """
+                DELETE FROM webauthn_challenges
+                WHERE id = %s AND purpose = %s AND expires_at >= %s
+                RETURNING challenge, user_id
+                """,
+                (challenge_id, purpose, int(time.time())),
+            ).fetchone()
+        else:
+            row = connection.execute(
+                """
+                DELETE FROM webauthn_challenges
+                WHERE id = %s
+                  AND purpose = %s
+                  AND expires_at >= %s
+                  AND user_id = %s
+                RETURNING challenge, user_id
+                """,
+                (challenge_id, purpose, int(time.time()), user_id),
+            ).fetchone()
+    if not row:
+        raise HTTPException(400, "Passkey request expired or was already used")
+    return dict(row)
+
+
 def public_message(row: dict) -> dict:
     return {
         "id": row["id"],
@@ -293,6 +401,11 @@ class PushKeys(BaseModel):
 class PushSubscriptionInput(BaseModel):
     endpoint: str = Field(min_length=20, max_length=2048)
     keys: PushKeys
+
+
+class PasskeyResponse(BaseModel):
+    ceremony_id: str
+    credential: dict
 
 
 class MessageEditInput(BaseModel):
@@ -510,6 +623,166 @@ def save_push_subscription(
                 int(time.time()),
             ),
         )
+    return {"ok": True}
+
+
+@app.post("/api/passkeys/register/options")
+def passkey_registration_options(request: Request) -> dict:
+    user = user_from_request(request)
+    with db() as connection:
+        rows = connection.execute(
+            "SELECT credential_id FROM passkeys WHERE user_id = %s",
+            (user["id"],),
+        ).fetchall()
+    options = generate_registration_options(
+        rp_id=settings.webauthn_rp_id,
+        rp_name=settings.webauthn_rp_name,
+        user_id=str(user["id"]).encode(),
+        user_name=user["username"],
+        user_display_name=user["display_name"],
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            resident_key=ResidentKeyRequirement.REQUIRED,
+            user_verification=UserVerificationRequirement.REQUIRED,
+        ),
+        exclude_credentials=[
+            PublicKeyCredentialDescriptor(id=bytes(row["credential_id"]))
+            for row in rows
+        ],
+    )
+    return {
+        "ceremony_id": create_webauthn_challenge(
+            options.challenge,
+            "registration",
+            user["id"],
+        ),
+        "options": json.loads(options_to_json(options)),
+    }
+
+
+@app.post("/api/passkeys/register/verify")
+def verify_passkey_registration(
+    payload: PasskeyResponse,
+    request: Request,
+) -> dict:
+    user = user_from_request(request)
+    ceremony = consume_webauthn_challenge(
+        payload.ceremony_id,
+        "registration",
+        user["id"],
+    )
+    try:
+        verification = verify_registration_response(
+            credential=payload.credential,
+            expected_challenge=bytes(ceremony["challenge"]),
+            expected_rp_id=settings.webauthn_rp_id,
+            expected_origin=settings.webauthn_origin,
+            require_user_verification=True,
+        )
+    except Exception as exception:
+        raise HTTPException(400, f"Passkey verification failed: {exception}") from None
+
+    transports = payload.credential.get("response", {}).get("transports", [])
+    with db() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO passkeys (
+                user_id, credential_id, public_key, sign_count, transports,
+                device_type, backed_up, created_at
+            )
+            VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s)
+            ON CONFLICT (credential_id) DO NOTHING
+            """,
+            (
+                user["id"],
+                verification.credential_id,
+                verification.credential_public_key,
+                verification.sign_count,
+                json.dumps(transports),
+                verification.credential_device_type.value,
+                verification.credential_backed_up,
+                int(time.time()),
+            ),
+        )
+    if cursor.rowcount != 1:
+        raise HTTPException(409, "This passkey is already registered")
+    return {"ok": True}
+
+
+@app.post("/api/passkeys/authenticate/options")
+def passkey_authentication_options() -> dict:
+    options = generate_authentication_options(
+        rp_id=settings.webauthn_rp_id,
+        user_verification=UserVerificationRequirement.REQUIRED,
+    )
+    return {
+        "ceremony_id": create_webauthn_challenge(
+            options.challenge,
+            "authentication",
+        ),
+        "options": json.loads(options_to_json(options)),
+    }
+
+
+@app.post("/api/passkeys/authenticate/verify")
+def verify_passkey_authentication(
+    payload: PasskeyResponse,
+    response: Response,
+) -> dict:
+    ceremony = consume_webauthn_challenge(
+        payload.ceremony_id,
+        "authentication",
+    )
+    credential_id = payload.credential.get("id")
+    if not isinstance(credential_id, str):
+        raise HTTPException(400, "Invalid passkey credential")
+    try:
+        credential_id_bytes = base64url_to_bytes(credential_id)
+    except Exception:
+        raise HTTPException(400, "Invalid passkey credential") from None
+    with db() as connection:
+        passkey = connection.execute(
+            """
+            SELECT id, user_id, public_key, sign_count
+            FROM passkeys
+            WHERE credential_id = %s
+            """,
+            (credential_id_bytes,),
+        ).fetchone()
+    if not passkey:
+        raise HTTPException(401, "Passkey is not registered")
+    try:
+        verification = verify_authentication_response(
+            credential=payload.credential,
+            expected_challenge=bytes(ceremony["challenge"]),
+            expected_rp_id=settings.webauthn_rp_id,
+            expected_origin=settings.webauthn_origin,
+            credential_public_key=bytes(passkey["public_key"]),
+            credential_current_sign_count=passkey["sign_count"],
+            require_user_verification=True,
+        )
+    except Exception:
+        raise HTTPException(401, "Passkey verification failed") from None
+    with db() as connection:
+        connection.execute(
+            """
+            UPDATE passkeys
+            SET sign_count = %s, last_used_at = %s
+            WHERE id = %s
+            """,
+            (
+                verification.new_sign_count,
+                int(time.time()),
+                passkey["id"],
+            ),
+        )
+    response.set_cookie(
+        settings.session_cookie_name,
+        make_session(passkey["user_id"]),
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite="strict",
+        max_age=settings.session_age_seconds,
+    )
     return {"ok": True}
 
 

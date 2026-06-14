@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     vapid_private_key: str | None = None
     vapid_public_key: str | None = None
     vapid_subject: str = "mailto:admin@example.com"
+    webauthn_rp_id: str = "localhost"
+    webauthn_rp_name: str = "Family Chat"
+    webauthn_origin: str = "http://localhost:8765"
 
     base_dir: Path = Path(__file__).resolve().parent
 

@@ -1,9 +1,9 @@
-const CACHE_NAME = "family-chat-shell-v3";
+const CACHE_NAME = "family-chat-shell-v5";
 const APP_SHELL = [
   "/",
   "/manifest.webmanifest",
-  "/static/style.css?v=12",
-  "/static/app.js?v=14",
+  "/static/style.css?v=13",
+  "/static/app.js?v=15",
   "/static/icons/icon.svg",
   "/static/icons/icon-192.png",
   "/static/icons/icon-512.png",

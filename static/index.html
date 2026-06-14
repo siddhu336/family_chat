@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-  <link rel="stylesheet" href="/static/style.css?v=13">
+  <link rel="stylesheet" href="/static/style.css?v=14">
 </head>
 <body>
   <main id="offline-view" class="centered hidden">
@@ -27,20 +27,32 @@
   <main id="auth-view" class="centered hidden">
     <section class="card auth-card">
       <h1>Family Chat</h1>
-      <p id="auth-help"></p>
-      <form id="auth-form">
-        <label>Display name<input id="display-name" maxlength="50" autocomplete="name"></label>
-        <label>Username<input id="username" required minlength="3" maxlength="30" autocomplete="username"></label>
-        <label>Password<input id="password" required minlength="8" maxlength="128" type="password" autocomplete="current-password"></label>
-        <button id="auth-button" type="submit">Sign in</button>
-        <p id="auth-error" class="error"></p>
-      </form>
-      <div id="passkey-login-area" class="passkey-login-area">
-        <span>or</span>
-        <button id="passkey-login-button" type="button" data-icon="fingerprint">
-          <span>Sign in with phone</span>
-        </button>
-        <small>Use your fingerprint, face unlock, or phone screen lock.</small>
+      <div id="normal-auth-area">
+        <p id="auth-help"></p>
+        <form id="auth-form">
+          <label>Display name<input id="display-name" maxlength="50" autocomplete="name"></label>
+          <label>Username<input id="username" required minlength="3" maxlength="30" autocomplete="username"></label>
+          <label>Password<input id="password" required minlength="8" maxlength="128" type="password" autocomplete="current-password"></label>
+          <button id="auth-button" type="submit">Sign in</button>
+          <p id="auth-error" class="error"></p>
+        </form>
+        <div id="passkey-login-area" class="passkey-login-area">
+          <span>or</span>
+          <button id="passkey-login-button" type="button" data-icon="fingerprint">
+            <span>Sign in with phone</span>
+          </button>
+          <small>Use your fingerprint, face unlock, or phone screen lock.</small>
+        </div>
+      </div>
+      <div id="invitation-area" class="hidden">
+        <p>You have been invited to join this private family chat.</p>
+        <p id="invitation-email" class="invitation-email"></p>
+        <form id="invitation-form">
+          <label>Display name<input id="invitation-display-name" required maxlength="50" autocomplete="name"></label>
+          <label>Username<input id="invitation-username" required minlength="3" maxlength="30" pattern="[A-Za-z0-9_.-]+" autocomplete="username"></label>
+          <button type="submit">Join Family Chat</button>
+          <p id="invitation-error" class="error"></p>
+        </form>
       </div>
     </section>
   </main>
@@ -142,14 +154,14 @@
 
   <dialog id="member-dialog">
     <form id="member-form" method="dialog" class="card">
-      <h2>Add family member</h2>
-      <label>Display name<input id="member-display-name" required maxlength="50"></label>
-      <label>Username<input id="member-username" required minlength="3" maxlength="30"></label>
-      <label>Temporary password<input id="member-password" required minlength="8" maxlength="128" type="password"></label>
+      <h2>Invite family member</h2>
+      <p>We will email a private, single-use registration link.</p>
+      <label>Email address<input id="member-email" required maxlength="254" type="email" autocomplete="email"></label>
+      <label>Display name (optional)<input id="member-display-name" maxlength="50" autocomplete="name"></label>
       <p id="member-error" class="error"></p>
       <div class="dialog-actions">
         <button id="cancel-member" type="button" class="secondary">Cancel</button>
-        <button type="submit">Create</button>
+        <button type="submit">Send invitation</button>
       </div>
     </form>
   </dialog>
@@ -182,6 +194,6 @@
     </form>
   </dialog>
 
-  <script src="/static/app.js?v=15"></script>
+  <script src="/static/app.js?v=16"></script>
 </body>
 </html>

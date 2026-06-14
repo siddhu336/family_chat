@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     webauthn_rp_id: str = "localhost"
     webauthn_rp_name: str = "Family Chat"
     webauthn_origin: str = "http://localhost:8765"
+    public_url: str = "http://localhost:8765"
+    invite_expiry_seconds: int = Field(default=60 * 60 * 24 * 3, gt=0)
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+    smtp_starttls: bool = True
 
     base_dir: Path = Path(__file__).resolve().parent
 

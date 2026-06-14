@@ -84,6 +84,7 @@ let installPrompt = null;
 let refreshingServiceWorker = false;
 let pushPublicKey = null;
 let pushSubscribed = false;
+let inviteToken = new URLSearchParams(window.location.search).get("invite");
 const messagesById = new Map();
 
 async function api(path, options = {}) {
@@ -244,6 +245,8 @@ function showAuth() {
   offlineView.classList.add("hidden");
   authView.classList.remove("hidden");
   chatView.classList.add("hidden");
+  document.querySelector("#normal-auth-area").classList.remove("hidden");
+  document.querySelector("#invitation-area").classList.add("hidden");
   document.querySelector("#display-name").parentElement.classList.toggle("hidden", !needsSetup);
   document.querySelector("#auth-help").textContent = needsSetup
     ? "Create the first administrator account."
@@ -253,6 +256,26 @@ function showAuth() {
     "hidden",
     needsSetup || !window.PublicKeyCredential,
   );
+}
+
+async function showInvitationRegistration() {
+  offlineView.classList.add("hidden");
+  chatView.classList.add("hidden");
+  authView.classList.remove("hidden");
+  document.querySelector("#normal-auth-area").classList.add("hidden");
+  document.querySelector("#invitation-area").classList.remove("hidden");
+  try {
+    const details = await api("/api/invitations/inspect", {
+      method: "POST",
+      body: JSON.stringify({ token: inviteToken }),
+    });
+    document.querySelector("#invitation-email").textContent = details.email;
+    document.querySelector("#invitation-display-name").value = details.suggested_name || "";
+  } catch (exception) {
+    document.querySelector("#invitation-email").textContent = "Invitation unavailable";
+    document.querySelector("#invitation-error").textContent = exception.message;
+    document.querySelector("#invitation-form").classList.add("hidden");
+  }
 }
 
 function renderContacts() {
@@ -814,6 +837,10 @@ function applyMessageDelete(event) {
 }
 
 async function receiveSocketEvent(event) {
+  if (event.type === "member_added") {
+    await loadContacts();
+    return;
+  }
   if (event.type === "profile_updated") {
     if (event.user.id === currentUser.id) {
       currentUser = { ...currentUser, ...event.user };
@@ -908,6 +935,11 @@ async function showChat() {
     await selectContact(contactId);
     window.history.replaceState({}, "", "/");
   }
+  if (inviteToken) {
+    showNotificationStatus(
+      "Sign out before accepting an invitation for another family member.",
+    );
+  }
 }
 
 async function initialize() {
@@ -917,7 +949,13 @@ async function initialize() {
   maxAttachmentBytes = status.max_attachment_bytes || maxAttachmentBytes;
   maxAvatarBytes = status.max_avatar_bytes || maxAvatarBytes;
   pushPublicKey = status.push_public_key || null;
-  currentUser ? await showChat() : showAuth();
+  if (currentUser) {
+    await showChat();
+  } else if (inviteToken) {
+    await showInvitationRegistration();
+  } else {
+    showAuth();
+  }
 }
 
 authForm.addEventListener("submit", async (event) => {
@@ -934,6 +972,31 @@ authForm.addEventListener("submit", async (event) => {
       }),
     });
     await initialize();
+  } catch (exception) {
+    error.textContent = exception.message;
+  }
+});
+
+document.querySelector("#invitation-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const error = document.querySelector("#invitation-error");
+  error.textContent = "";
+  try {
+    await api("/api/invitations/register", {
+      method: "POST",
+      body: JSON.stringify({
+        token: inviteToken,
+        display_name: document.querySelector("#invitation-display-name").value.trim(),
+        username: document.querySelector("#invitation-username").value.trim(),
+      }),
+    });
+    window.history.replaceState({}, "", "/");
+    inviteToken = null;
+    await initialize();
+    showNotificationStatus(
+      "Account created. Open your profile and set up phone sign-in now.",
+    );
+    document.querySelector("#profile-button").click();
   } catch (exception) {
     error.textContent = exception.message;
   }
@@ -1069,7 +1132,8 @@ document.querySelector("#logout-button").addEventListener("click", async () => {
   if (socket) socket.close();
   contacts = [];
   updateAppBadge();
-  showAuth();
+  if (inviteToken) await initialize();
+  else showAuth();
 });
 
 document.querySelector("#passkey-register-button").addEventListener("click", async () => {
@@ -1397,17 +1461,16 @@ document.querySelector("#member-form").addEventListener("submit", async (event) 
   const error = document.querySelector("#member-error");
   error.textContent = "";
   try {
-    await api("/api/users", {
+    const result = await api("/api/invitations", {
       method: "POST",
       body: JSON.stringify({
-        display_name: document.querySelector("#member-display-name").value,
-        username: document.querySelector("#member-username").value,
-        password: document.querySelector("#member-password").value,
+        email: document.querySelector("#member-email").value,
+        display_name: document.querySelector("#member-display-name").value || null,
       }),
     });
     event.target.reset();
     memberDialog.close();
-    await loadContacts();
+    showNotificationStatus(`Invitation sent to ${result.email}.`);
   } catch (exception) {
     error.textContent = exception.message;
   }

@@ -2,11 +2,14 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import html
 import json
+import smtplib
 import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
+from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -25,7 +28,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 from pywebpush import WebPushException, webpush
 from webauthn import (
     base64url_to_bytes,
@@ -88,6 +91,13 @@ def initialize_database() -> None:
                 profile_updated_at BIGINT
             );
             """
+        )
+        connection.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx "
+            "ON users (LOWER(email)) WHERE email IS NOT NULL"
         )
         connection.execute(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen BIGINT"
@@ -162,6 +172,24 @@ def initialize_database() -> None:
                 expires_at BIGINT NOT NULL
             );
             """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS invitations (
+                id BIGSERIAL PRIMARY KEY,
+                email TEXT NOT NULL,
+                suggested_name TEXT,
+                token_hash TEXT UNIQUE NOT NULL,
+                invited_by BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at BIGINT NOT NULL,
+                expires_at BIGINT NOT NULL,
+                accepted_at BIGINT
+            );
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS invitations_email_lower_idx "
+            "ON invitations (LOWER(email))"
         )
         connection.execute(
             "DELETE FROM webauthn_challenges WHERE expires_at < %s",
@@ -408,6 +436,21 @@ class PasskeyResponse(BaseModel):
     credential: dict
 
 
+class InvitationInput(BaseModel):
+    email: EmailStr
+    display_name: str | None = Field(default=None, min_length=1, max_length=50)
+
+
+class InvitationRegistration(BaseModel):
+    token: str = Field(min_length=32, max_length=200)
+    username: str = Field(min_length=3, max_length=30, pattern=r"^[A-Za-z0-9_.-]+$")
+    display_name: str = Field(min_length=1, max_length=50)
+
+
+class InvitationToken(BaseModel):
+    token: str = Field(min_length=32, max_length=200)
+
+
 class MessageEditInput(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
 
@@ -470,6 +513,52 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+
+
+def invitation_token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def send_invitation_email_sync(
+    recipient: str,
+    inviter_name: str,
+    invitation_url: str,
+) -> None:
+    if not settings.smtp_host or not settings.smtp_from_email:
+        raise RuntimeError("SMTP is not configured")
+    message = EmailMessage()
+    message["Subject"] = f"{inviter_name} invited you to Family Chat"
+    message["From"] = settings.smtp_from_email
+    message["To"] = recipient
+    expiry_hours = max(1, settings.invite_expiry_seconds // 3600)
+    safe_inviter = html.escape(inviter_name)
+    safe_url = html.escape(invitation_url, quote=True)
+    message.set_content(
+        f"{inviter_name} invited you to join Family Chat.\n\n"
+        f"Open this private registration link:\n{invitation_url}\n\n"
+        f"This link can be used once and expires in {expiry_hours} hours."
+    )
+    message.add_alternative(
+        f"""
+        <html><body style="font-family:Arial,sans-serif;color:#111b21">
+          <h2>Join Family Chat</h2>
+          <p><strong>{safe_inviter}</strong> invited you to the private family chat.</p>
+          <p><a href="{safe_url}" style="display:inline-block;padding:12px 18px;
+             border-radius:8px;background:#008069;color:white;text-decoration:none;
+             font-weight:bold">Accept invitation</a></p>
+          <p style="color:#667781;font-size:13px">
+            This single-use link expires in {expiry_hours} hours.
+          </p>
+        </body></html>
+        """,
+        subtype="html",
+    )
+    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as smtp:
+        if settings.smtp_starttls:
+            smtp.starttls()
+        if settings.smtp_username:
+            smtp.login(settings.smtp_username, settings.smtp_password or "")
+        smtp.send_message(message)
 
 
 def send_push_sync(recipient_id: int, payload: dict) -> None:
@@ -587,6 +676,160 @@ def status(request: Request) -> dict:
         "max_avatar_bytes": settings.max_avatar_bytes,
         "push_public_key": settings.vapid_public_key,
     }
+
+
+@app.post("/api/invitations")
+async def create_invitation(
+    invitation: InvitationInput,
+    request: Request,
+) -> dict:
+    admin = user_from_request(request)
+    if not admin["is_admin"]:
+        raise HTTPException(403, "Administrator access required")
+    if not settings.smtp_host or not settings.smtp_from_email:
+        raise HTTPException(503, "Email invitations are not configured")
+
+    email = str(invitation.email).strip().lower()
+    token = secrets.token_urlsafe(32)
+    token_hash = invitation_token_hash(token)
+    now = int(time.time())
+    with db() as connection:
+        existing = connection.execute(
+            "SELECT 1 FROM users WHERE LOWER(email) = %s",
+            (email,),
+        ).fetchone()
+        if existing:
+            raise HTTPException(409, "A family member already uses that email")
+        connection.execute(
+            """
+            DELETE FROM invitations
+            WHERE LOWER(email) = %s AND accepted_at IS NULL
+            """,
+            (email,),
+        )
+        row = connection.execute(
+            """
+            INSERT INTO invitations (
+                email, suggested_name, token_hash, invited_by, created_at, expires_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                email,
+                invitation.display_name.strip() if invitation.display_name else None,
+                token_hash,
+                admin["id"],
+                now,
+                now + settings.invite_expiry_seconds,
+            ),
+        ).fetchone()
+
+    invitation_url = (
+        f"{settings.public_url.rstrip('/')}/?invite={token}"
+    )
+    try:
+        await asyncio.to_thread(
+            send_invitation_email_sync,
+            email,
+            admin["display_name"],
+            invitation_url,
+        )
+    except Exception as exception:
+        with db() as connection:
+            connection.execute(
+                "DELETE FROM invitations WHERE id = %s",
+                (row["id"],),
+            )
+        raise HTTPException(
+            502,
+            f"Could not send invitation email: {exception}",
+        ) from None
+    return {"ok": True, "email": email}
+
+
+@app.post("/api/invitations/inspect")
+def inspect_invitation(payload: InvitationToken) -> dict:
+    with db() as connection:
+        row = connection.execute(
+            """
+            SELECT email, suggested_name, expires_at
+            FROM invitations
+            WHERE token_hash = %s
+              AND accepted_at IS NULL
+              AND expires_at >= %s
+            """,
+            (invitation_token_hash(payload.token), int(time.time())),
+        ).fetchone()
+    if not row:
+        raise HTTPException(404, "Invitation is invalid, expired, or already used")
+    return dict(row)
+
+
+@app.post("/api/invitations/register")
+async def register_invitation(
+    registration: InvitationRegistration,
+    response: Response,
+) -> dict:
+    clean_name = registration.display_name.strip()
+    now = int(time.time())
+    try:
+        with db() as connection:
+            invitation = connection.execute(
+                """
+                SELECT id, email
+                FROM invitations
+                WHERE token_hash = %s
+                  AND accepted_at IS NULL
+                  AND expires_at >= %s
+                FOR UPDATE
+                """,
+                (invitation_token_hash(registration.token), now),
+            ).fetchone()
+            if not invitation:
+                raise HTTPException(
+                    404,
+                    "Invitation is invalid, expired, or already used",
+                )
+            row = connection.execute(
+                """
+                INSERT INTO users (
+                    username, email, display_name, password_hash, is_admin, created_at
+                )
+                VALUES (%s, %s, %s, %s, FALSE, %s)
+                RETURNING id
+                """,
+                (
+                    registration.username,
+                    invitation["email"],
+                    clean_name,
+                    hash_password(secrets.token_urlsafe(48)),
+                    now,
+                ),
+            ).fetchone()
+            connection.execute(
+                "UPDATE invitations SET accepted_at = %s WHERE id = %s",
+                (now, invitation["id"]),
+            )
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(
+            409,
+            "That username or email is already registered",
+        ) from None
+
+    response.set_cookie(
+        settings.session_cookie_name,
+        make_session(row["id"]),
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite="strict",
+        max_age=settings.session_age_seconds,
+    )
+    await manager.send_to_users(
+        manager.online_user_ids(),
+        {"type": "member_added", "user_id": row["id"]},
+    )
+    return {"ok": True}
 
 
 @app.post("/api/push/subscriptions")

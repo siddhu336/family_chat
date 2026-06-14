@@ -166,3 +166,25 @@ For this deployment, use `marschat.ssnapps.com` as the RP ID and
 `https://marschat.ssnapps.com` as the origin. These values must exactly match
 the hostname family members use. After signing in normally once, open the
 profile dialog and choose **Set up phone sign-in**.
+
+## Email invitations
+
+Administrators invite new family members by email. The recipient receives a
+single-use registration link, creates their account without a temporary
+password, and is guided to set up a passkey.
+
+Set the public URL and SMTP provider in `.env`:
+
+```dotenv
+PUBLIC_URL=https://marschat.ssnapps.com
+INVITE_EXPIRY_SECONDS=259200
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USERNAME=your-smtp-user
+SMTP_PASSWORD=your-smtp-password
+SMTP_FROM_EMAIL=family-chat@example.com
+SMTP_STARTTLS=true
+```
+
+For Gmail, use `smtp.gmail.com`, port `587`, and a Google App Password rather
+than the normal account password. Keep all SMTP credentials only in `.env`.

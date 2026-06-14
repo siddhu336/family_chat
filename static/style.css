@@ -87,6 +87,14 @@ input {
   font-weight: 800;
 }
 .passkey-login-area small { font-size: 12px; }
+.invitation-email {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #e7f8f4;
+  color: #006b5b;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
 
 .app {
   width: min(1180px, 100%);

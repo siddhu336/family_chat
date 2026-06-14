@@ -1,0 +1,6 @@
+INFO:     127.0.0.1:53707 - "POST /api/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53711 - "GET /api/contacts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53714 - "GET /api/contacts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53717 - "POST /api/messages/17/read HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53720 - "GET /api/contacts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53723 - "GET /api/contacts HTTP/1.1" 200 OK

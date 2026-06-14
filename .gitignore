@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+family_chat.db
+.family_chat_secret
+server*.log
+uploads/
+avatars/
+vapid_private.pem
+.env

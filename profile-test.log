@@ -1,0 +1,8 @@
+INFO:     127.0.0.1:57021 - "POST /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57023 - "POST /api/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57030 - "PUT /api/profile HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57033 - "GET /api/contacts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57036 - "GET /api/users/25/avatar?v=1781429743 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57039 - "GET /api/users/25/avatar?v=1781429743 HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:57040 - "PUT /api/profile HTTP/1.1" 413 Content Too Large
+INFO:     127.0.0.1:57042 - "PUT /api/profile HTTP/1.1" 200 OK

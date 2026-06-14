@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#075e54">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Family Chat">
+  <title>Family Chat</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <link rel="stylesheet" href="/static/style.css?v=12">
+</head>
+<body>
+  <main id="offline-view" class="centered hidden">
+    <section class="card offline-card">
+      <img src="/static/icons/icon-192.png" alt="" width="72" height="72">
+      <h1>Family Chat is offline</h1>
+      <p>Your messages are safe. Reconnect to the internet and try again.</p>
+      <button id="retry-button" type="button">Try again</button>
+    </section>
+  </main>
+
+  <main id="auth-view" class="centered hidden">
+    <section class="card auth-card">
+      <h1>Family Chat</h1>
+      <p id="auth-help"></p>
+      <form id="auth-form">
+        <label>Display name<input id="display-name" maxlength="50" autocomplete="name"></label>
+        <label>Username<input id="username" required minlength="3" maxlength="30" autocomplete="username"></label>
+        <label>Password<input id="password" required minlength="8" maxlength="128" type="password" autocomplete="current-password"></label>
+        <button id="auth-button" type="submit">Sign in</button>
+        <p id="auth-error" class="error"></p>
+      </form>
+    </section>
+  </main>
+
+  <main id="chat-view" class="app hidden">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div>
+          <h1>Family Chat</h1>
+          <small id="identity"></small>
+        </div>
+        <div class="sidebar-actions">
+          <button id="install-button" class="icon-button hidden" data-icon="download" title="Install app" aria-label="Install app"></button>
+          <button id="profile-button" class="icon-button" data-icon="user" title="Edit profile" aria-label="Edit profile"></button>
+          <button id="add-member-button" class="icon-button hidden" data-icon="user-plus" title="Add member" aria-label="Add member"></button>
+          <button id="change-password-button" class="icon-button" data-icon="key" title="Change password" aria-label="Change password"></button>
+          <button id="logout-button" class="icon-button" data-icon="log-out" title="Sign out" aria-label="Sign out"></button>
+        </div>
+      </div>
+      <button id="notification-button" class="notification-button" data-icon="bell">
+        <span>Enable notifications</span>
+      </button>
+      <p id="notification-status" class="notification-status hidden" role="status"></p>
+      <div id="contacts" class="contacts"></div>
+    </aside>
+
+    <section id="conversation" class="conversation empty">
+      <div id="empty-conversation" class="empty-conversation">
+        <h2>Select a family member</h2>
+        <p>Choose someone from the list to start a private conversation.</p>
+      </div>
+      <div id="active-conversation" class="active-conversation hidden">
+        <header class="conversation-header">
+          <button id="back-button" class="back-button" data-icon="arrow-left" title="Back to chats" aria-label="Back to chats"></button>
+          <div class="avatar" id="conversation-avatar"></div>
+          <div>
+            <h2 id="conversation-name"></h2>
+            <small id="conversation-status">Private conversation</small>
+          </div>
+          <button id="reset-password-button" class="reset-password-button hidden" data-icon="key-round">
+            <span>Reset password</span>
+          </button>
+        </header>
+        <section id="messages" aria-live="polite"></section>
+        <div class="composer-shell">
+          <div id="composer-context" class="composer-context hidden">
+            <div>
+              <strong id="composer-context-title"></strong>
+              <p id="composer-context-body"></p>
+            </div>
+            <button id="cancel-composer-context" type="button" data-icon="x" title="Cancel" aria-label="Cancel"></button>
+          </div>
+          <div id="attachment-preview" class="attachment-preview hidden">
+            <div id="attachment-preview-content"></div>
+            <div class="attachment-preview-details">
+              <strong id="attachment-preview-name"></strong>
+              <span id="attachment-preview-size"></span>
+              <progress id="upload-progress" class="hidden" max="100" value="0"></progress>
+            </div>
+            <button id="cancel-attachment" type="button" data-icon="x" title="Remove attachment" aria-label="Remove attachment"></button>
+          </div>
+          <form id="message-form" class="composer">
+            <button id="camera-button" class="attachment-button" type="button" data-icon="camera" title="Take photo" aria-label="Take photo"></button>
+            <input id="camera-input" class="hidden" type="file" accept="image/*" capture="environment">
+            <button id="attachment-button" class="attachment-button" type="button" data-icon="paperclip" title="Attach photo or file" aria-label="Attach photo or file"></button>
+            <input id="attachment-input" class="hidden" type="file" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.doc,.docx,.xls,.xlsx">
+            <input id="message-input" maxlength="4000" placeholder="Type a message" autocomplete="off">
+            <button id="send-button" type="submit" data-icon="send" title="Send" aria-label="Send"></button>
+          </form>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="profile-dialog">
+    <form id="profile-form" method="dialog" class="card">
+      <h2>Edit profile</h2>
+      <div class="profile-photo-editor">
+        <div id="profile-avatar-preview" class="avatar profile-avatar-preview"></div>
+        <div>
+          <label class="profile-photo-button" for="profile-avatar-input">Choose photo</label>
+          <input id="profile-avatar-input" class="hidden" type="file" accept=".jpg,.jpeg,.png,.webp">
+          <button id="remove-profile-avatar" class="profile-remove-button hidden" type="button">Remove photo</button>
+          <small>JPG, PNG, or WebP. Maximum 2 MB.</small>
+        </div>
+      </div>
+      <label>Display name<input id="profile-display-name" required maxlength="50" autocomplete="name"></label>
+      <p id="profile-error" class="error"></p>
+      <div class="dialog-actions">
+        <button id="cancel-profile" type="button" class="secondary">Cancel</button>
+        <button type="submit">Save profile</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="member-dialog">
+    <form id="member-form" method="dialog" class="card">
+      <h2>Add family member</h2>
+      <label>Display name<input id="member-display-name" required maxlength="50"></label>
+      <label>Username<input id="member-username" required minlength="3" maxlength="30"></label>
+      <label>Temporary password<input id="member-password" required minlength="8" maxlength="128" type="password"></label>
+      <p id="member-error" class="error"></p>
+      <div class="dialog-actions">
+        <button id="cancel-member" type="button" class="secondary">Cancel</button>
+        <button type="submit">Create</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="change-password-dialog">
+    <form id="change-password-form" method="dialog" class="card">
+      <h2>Change password</h2>
+      <label>Current password<input id="current-password" required minlength="8" maxlength="128" type="password" autocomplete="current-password"></label>
+      <label>New password<input id="new-password" required minlength="8" maxlength="128" type="password" autocomplete="new-password"></label>
+      <label>Confirm new password<input id="confirm-new-password" required minlength="8" maxlength="128" type="password" autocomplete="new-password"></label>
+      <p id="change-password-error" class="error"></p>
+      <div class="dialog-actions">
+        <button id="cancel-change-password" type="button" class="secondary">Cancel</button>
+        <button type="submit">Change password</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="reset-password-dialog">
+    <form id="reset-password-form" method="dialog" class="card">
+      <h2>Reset password</h2>
+      <p>Set a temporary password for <strong id="reset-password-name"></strong>.</p>
+      <label>Temporary password<input id="reset-password-value" required minlength="8" maxlength="128" type="password" autocomplete="new-password"></label>
+      <label>Confirm password<input id="confirm-reset-password" required minlength="8" maxlength="128" type="password" autocomplete="new-password"></label>
+      <p id="reset-password-error" class="error"></p>
+      <div class="dialog-actions">
+        <button id="cancel-reset-password" type="button" class="secondary">Cancel</button>
+        <button type="submit">Reset password</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/static/app.js?v=14"></script>
+</body>
+</html>

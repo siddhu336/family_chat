@@ -188,3 +188,15 @@ SMTP_STARTTLS=true
 
 For Gmail, use `smtp.gmail.com`, port `587`, and a Google App Password rather
 than the normal account password. Keep all SMTP credentials only in `.env`.
+
+## Administration
+
+Administrators can open **Manage family** from the sidebar to:
+
+- resend or revoke pending invitations;
+- disable, enable, promote, or remove members;
+- sign a member out from every device;
+- inspect and revoke registered passkeys.
+
+The current administrator cannot disable, demote, or delete their own account,
+and the last active administrator is protected.

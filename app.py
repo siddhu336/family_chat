@@ -88,7 +88,9 @@ def initialize_database() -> None:
                 last_seen BIGINT,
                 avatar_storage_name TEXT,
                 avatar_content_type TEXT,
-                profile_updated_at BIGINT
+                profile_updated_at BIGINT,
+                disabled_at BIGINT,
+                session_version BIGINT NOT NULL DEFAULT 0
             );
             """
         )
@@ -110,6 +112,12 @@ def initialize_database() -> None:
         )
         connection.execute(
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_updated_at BIGINT"
+        )
+        connection.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS disabled_at BIGINT"
+        )
+        connection.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version BIGINT NOT NULL DEFAULT 0"
         )
         connection.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_idx ON users (LOWER(username))"
@@ -251,7 +259,14 @@ def password_matches(password: str, stored: str) -> bool:
 
 
 def make_session(user_id: int) -> str:
-    payload = f"{user_id}:{int(time.time())}"
+    with db() as connection:
+        row = connection.execute(
+            "SELECT session_version FROM users WHERE id = %s AND disabled_at IS NULL",
+            (user_id,),
+        ).fetchone()
+    if not row:
+        raise ValueError("User is unavailable")
+    payload = f"{user_id}:{row['session_version']}:{int(time.time())}"
     signature = hmac.new(
         settings.secret_key, payload.encode(), hashlib.sha256
     ).hexdigest()
@@ -262,14 +277,33 @@ def session_user_id(token: str | None) -> int | None:
     if not token:
         return None
     try:
-        user_id, issued_at, signature = token.split(":", 2)
-        payload = f"{user_id}:{issued_at}"
+        parts = token.split(":")
+        if len(parts) == 3:
+            user_id, issued_at, signature = parts
+            session_version = "0"
+            payload = f"{user_id}:{issued_at}"
+        elif len(parts) == 4:
+            user_id, session_version, issued_at, signature = parts
+            payload = f"{user_id}:{session_version}:{issued_at}"
+        else:
+            return None
         expected = hmac.new(
             settings.secret_key, payload.encode(), hashlib.sha256
         ).hexdigest()
         if not hmac.compare_digest(signature, expected):
             return None
         if time.time() - int(issued_at) > settings.session_age_seconds:
+            return None
+        with db() as connection:
+            row = connection.execute(
+                """
+                SELECT session_version
+                FROM users
+                WHERE id = %s AND disabled_at IS NULL
+                """,
+                (int(user_id),),
+            ).fetchone()
+        if not row or row["session_version"] != int(session_version):
             return None
         return int(user_id)
     except (ValueError, TypeError):
@@ -302,7 +336,7 @@ def get_user(user_id: int | None) -> dict | None:
             SELECT id, username, display_name, is_admin,
                    avatar_storage_name, profile_updated_at
             FROM users
-            WHERE id = %s
+            WHERE id = %s AND disabled_at IS NULL
             """,
             (user_id,),
         ).fetchone()
@@ -464,6 +498,10 @@ class PasswordResetInput(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
+class AdminRoleInput(BaseModel):
+    is_admin: bool
+
+
 class ConnectionManager:
     def __init__(self) -> None:
         self.connections: dict[int, list[WebSocket]] = {}
@@ -497,6 +535,17 @@ class ConnectionManager:
                     dead.append((user_id, websocket))
         for user_id, websocket in dead:
             self.disconnect(user_id, websocket)
+
+    async def close_user(self, user_id: int, reason: str) -> None:
+        connections = self.connections.pop(user_id, [])
+        for websocket in connections:
+            try:
+                await websocket.send_json(
+                    {"type": "session_revoked", "reason": reason}
+                )
+                await websocket.close(code=1008)
+            except Exception:
+                pass
 
     async def broadcast_presence(
         self, user_id: int, is_online: bool, last_seen: int | None
@@ -832,6 +881,281 @@ async def register_invitation(
     return {"ok": True}
 
 
+def require_admin(request: Request) -> dict:
+    admin = user_from_request(request)
+    if not admin["is_admin"]:
+        raise HTTPException(403, "Administrator access required")
+    return admin
+
+
+def ensure_not_last_admin(connection: psycopg.Connection, user_id: int) -> None:
+    row = connection.execute(
+        "SELECT is_admin, disabled_at FROM users WHERE id = %s",
+        (user_id,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, "Family member not found")
+    if row["is_admin"] and row["disabled_at"] is None:
+        count = connection.execute(
+            "SELECT COUNT(*) AS count FROM users WHERE is_admin AND disabled_at IS NULL"
+        ).fetchone()["count"]
+        if count <= 1:
+            raise HTTPException(409, "The last active administrator cannot be changed")
+
+
+@app.get("/api/admin/overview")
+def admin_overview(request: Request) -> dict:
+    require_admin(request)
+    now = int(time.time())
+    with db() as connection:
+        members = connection.execute(
+            """
+            SELECT
+                users.id, users.username, users.email, users.display_name,
+                users.is_admin, users.disabled_at, users.created_at,
+                users.last_seen,
+                COALESCE(passkey_counts.count, 0) AS passkey_count
+            FROM users
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS count
+                FROM passkeys
+                WHERE passkeys.user_id = users.id
+            ) passkey_counts ON TRUE
+            ORDER BY users.is_admin DESC, LOWER(users.display_name)
+            """
+        ).fetchall()
+        passkeys = connection.execute(
+            """
+            SELECT id, user_id, transports, device_type, backed_up,
+                   created_at, last_used_at
+            FROM passkeys
+            ORDER BY created_at DESC
+            """
+        ).fetchall()
+        invitations = connection.execute(
+            """
+            SELECT invitations.id, invitations.email, invitations.suggested_name,
+                   invitations.created_at, invitations.expires_at,
+                   invitations.accepted_at, users.display_name AS invited_by_name
+            FROM invitations
+            JOIN users ON users.id = invitations.invited_by
+            ORDER BY invitations.id DESC
+            """
+        ).fetchall()
+    invitation_results = []
+    for row in invitations:
+        item = dict(row)
+        item["status"] = (
+            "accepted"
+            if item["accepted_at"]
+            else "expired"
+            if item["expires_at"] < now
+            else "pending"
+        )
+        invitation_results.append(item)
+    return {
+        "members": [dict(row) for row in members],
+        "passkeys": [dict(row) for row in passkeys],
+        "invitations": invitation_results,
+    }
+
+
+@app.post("/api/admin/invitations/{invitation_id}/resend")
+async def resend_invitation(invitation_id: int, request: Request) -> dict:
+    admin = require_admin(request)
+    if not settings.smtp_host or not settings.smtp_from_email:
+        raise HTTPException(503, "Email invitations are not configured")
+    token = secrets.token_urlsafe(32)
+    now = int(time.time())
+    with db() as connection:
+        row = connection.execute(
+            """
+            SELECT id, email, token_hash, expires_at
+            FROM invitations
+            WHERE id = %s AND accepted_at IS NULL
+            """,
+            (invitation_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Pending invitation not found")
+        connection.execute(
+            """
+            UPDATE invitations
+            SET token_hash = %s, created_at = %s, expires_at = %s, invited_by = %s
+            WHERE id = %s
+            """,
+            (
+                invitation_token_hash(token),
+                now,
+                now + settings.invite_expiry_seconds,
+                admin["id"],
+                invitation_id,
+            ),
+        )
+    invitation_url = f"{settings.public_url.rstrip('/')}/?invite={token}"
+    try:
+        await asyncio.to_thread(
+            send_invitation_email_sync,
+            row["email"],
+            admin["display_name"],
+            invitation_url,
+        )
+    except Exception as exception:
+        with db() as connection:
+            connection.execute(
+                """
+                UPDATE invitations
+                SET token_hash = %s, expires_at = %s
+                WHERE id = %s
+                """,
+                (row["token_hash"], row["expires_at"], invitation_id),
+            )
+        raise HTTPException(502, f"Could not resend invitation: {exception}") from None
+    return {"ok": True}
+
+
+@app.delete("/api/admin/invitations/{invitation_id}")
+def revoke_invitation(invitation_id: int, request: Request) -> dict:
+    require_admin(request)
+    with db() as connection:
+        cursor = connection.execute(
+            "DELETE FROM invitations WHERE id = %s AND accepted_at IS NULL",
+            (invitation_id,),
+        )
+    if cursor.rowcount != 1:
+        raise HTTPException(404, "Pending invitation not found")
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/{user_id}/toggle-disabled")
+async def toggle_user_disabled(user_id: int, request: Request) -> dict:
+    admin = require_admin(request)
+    if user_id == admin["id"]:
+        raise HTTPException(409, "You cannot disable your own account")
+    now = int(time.time())
+    with db() as connection:
+        row = connection.execute(
+            "SELECT disabled_at, is_admin FROM users WHERE id = %s",
+            (user_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Family member not found")
+        disabling = row["disabled_at"] is None
+        if disabling:
+            ensure_not_last_admin(connection, user_id)
+        updated = connection.execute(
+            """
+            UPDATE users
+            SET disabled_at = %s,
+                session_version = session_version + 1
+            WHERE id = %s
+            RETURNING disabled_at
+            """,
+            (now if disabling else None, user_id),
+        ).fetchone()
+    if disabling:
+        await manager.close_user(user_id, "Your account was disabled by an administrator.")
+    await manager.send_to_users(
+        manager.online_user_ids(),
+        {"type": "members_changed"},
+    )
+    return {"ok": True, "disabled_at": updated["disabled_at"]}
+
+
+@app.post("/api/admin/users/{user_id}/role")
+async def update_user_role(
+    user_id: int,
+    roles: AdminRoleInput,
+    request: Request,
+) -> dict:
+    admin = require_admin(request)
+    if user_id == admin["id"]:
+        raise HTTPException(409, "You cannot change your own administrator role")
+    with db() as connection:
+        if not roles.is_admin:
+            ensure_not_last_admin(connection, user_id)
+        cursor = connection.execute(
+            "UPDATE users SET is_admin = %s WHERE id = %s",
+            (roles.is_admin, user_id),
+        )
+    if cursor.rowcount != 1:
+        raise HTTPException(404, "Family member not found")
+    await manager.send_to_users({user_id}, {"type": "session_refresh"})
+    await manager.send_to_users(
+        manager.online_user_ids() - {user_id},
+        {"type": "members_changed"},
+    )
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/{user_id}/sign-out")
+async def sign_out_user_devices(user_id: int, request: Request) -> dict:
+    admin = require_admin(request)
+    if user_id == admin["id"]:
+        raise HTTPException(409, "Use Sign out to end your own session")
+    with db() as connection:
+        cursor = connection.execute(
+            "UPDATE users SET session_version = session_version + 1 WHERE id = %s",
+            (user_id,),
+        )
+    if cursor.rowcount != 1:
+        raise HTTPException(404, "Family member not found")
+    await manager.close_user(user_id, "An administrator signed out your devices.")
+    return {"ok": True}
+
+
+@app.delete("/api/admin/passkeys/{passkey_id}")
+async def revoke_passkey(passkey_id: int, request: Request) -> dict:
+    require_admin(request)
+    with db() as connection:
+        row = connection.execute(
+            "DELETE FROM passkeys WHERE id = %s RETURNING user_id",
+            (passkey_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(404, "Passkey not found")
+    await manager.send_to_users(
+        {row["user_id"]},
+        {"type": "passkeys_changed"},
+    )
+    return {"ok": True}
+
+
+@app.delete("/api/admin/users/{user_id}")
+async def delete_user_account(user_id: int, request: Request) -> dict:
+    admin = require_admin(request)
+    if user_id == admin["id"]:
+        raise HTTPException(409, "You cannot delete your own account")
+    with db() as connection:
+        ensure_not_last_admin(connection, user_id)
+        files = connection.execute(
+            """
+            SELECT attachment_storage_name
+            FROM messages
+            WHERE (user_id = %s OR recipient_id = %s)
+              AND attachment_storage_name IS NOT NULL
+            """,
+            (user_id, user_id),
+        ).fetchall()
+        user = connection.execute(
+            "SELECT avatar_storage_name FROM users WHERE id = %s",
+            (user_id,),
+        ).fetchone()
+        if not user:
+            raise HTTPException(404, "Family member not found")
+        connection.execute("DELETE FROM users WHERE id = %s", (user_id,))
+    for row in files:
+        (settings.upload_dir / row["attachment_storage_name"]).unlink(missing_ok=True)
+    if user["avatar_storage_name"]:
+        (settings.avatar_dir / user["avatar_storage_name"]).unlink(missing_ok=True)
+    await manager.close_user(user_id, "Your Family Chat account was removed.")
+    await manager.send_to_users(
+        manager.online_user_ids(),
+        {"type": "members_changed"},
+    )
+    return {"ok": True}
+
+
 @app.post("/api/push/subscriptions")
 def save_push_subscription(
     subscription: PushSubscriptionInput,
@@ -985,9 +1309,11 @@ def verify_passkey_authentication(
     with db() as connection:
         passkey = connection.execute(
             """
-            SELECT id, user_id, public_key, sign_count
+            SELECT passkeys.id, passkeys.user_id,
+                   passkeys.public_key, passkeys.sign_count
             FROM passkeys
-            WHERE credential_id = %s
+            JOIN users ON users.id = passkeys.user_id
+            WHERE credential_id = %s AND users.disabled_at IS NULL
             """,
             (credential_id_bytes,),
         ).fetchone()
@@ -1198,7 +1524,11 @@ def setup(credentials: Credentials, response: Response) -> dict:
 def login(credentials: Credentials, response: Response) -> dict:
     with db() as connection:
         row = connection.execute(
-            "SELECT id, password_hash FROM users WHERE LOWER(username) = LOWER(%s)",
+            """
+            SELECT id, password_hash
+            FROM users
+            WHERE LOWER(username) = LOWER(%s) AND disabled_at IS NULL
+            """,
             (credentials.username,),
         ).fetchone()
     if not row or not password_matches(credentials.password, row["password_hash"]):
@@ -1338,7 +1668,7 @@ def contacts(request: Request) -> list[dict]:
                 ORDER BY messages.id DESC
                 LIMIT 1
             ) latest ON TRUE
-            WHERE users.id <> %s
+            WHERE users.id <> %s AND users.disabled_at IS NULL
             ORDER BY latest.created_at DESC NULLS LAST, LOWER(users.display_name)
             """,
             (user["id"], user["id"], user["id"], user["id"]),

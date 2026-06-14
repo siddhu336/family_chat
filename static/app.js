@@ -8,6 +8,7 @@ const emptyConversation = document.querySelector("#empty-conversation");
 const activeConversation = document.querySelector("#active-conversation");
 const messages = document.querySelector("#messages");
 const memberDialog = document.querySelector("#member-dialog");
+const adminDialog = document.querySelector("#admin-dialog");
 const changePasswordDialog = document.querySelector("#change-password-dialog");
 const resetPasswordDialog = document.querySelector("#reset-password-dialog");
 const profileDialog = document.querySelector("#profile-dialog");
@@ -37,6 +38,7 @@ const icons = {
   reply: '<path d="m9 17-5-5 5-5"/><path d="M4 12h10a6 6 0 0 1 6 6v1"/>',
   save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/>',
   send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/>',
   trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/>',
   user: '<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/>',
   "user-plus": '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>',
@@ -213,6 +215,14 @@ function formatLastSeen(timestamp) {
   return `last seen ${isToday ? "today " : ""}${formatted}`;
 }
 
+function formatDateTime(timestamp) {
+  if (!timestamp) return "Never";
+  return new Date(timestamp * 1000).toLocaleString([], {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 function updateConversationStatus() {
   if (!selectedContact) {
     conversationStatus.textContent = "Private conversation";
@@ -352,8 +362,16 @@ function renderContacts() {
 
 async function loadContacts() {
   contacts = await api("/api/contacts");
+  const hadSelectedContact = Boolean(selectedContact);
   if (selectedContact) {
     selectedContact = contacts.find((contact) => contact.id === selectedContact.id) || null;
+  }
+  if (hadSelectedContact && !selectedContact) {
+    chatView.classList.remove("conversation-open");
+    conversation.classList.add("empty");
+    activeConversation.classList.add("hidden");
+    emptyConversation.classList.remove("hidden");
+    messages.replaceChildren();
   }
   renderContacts();
   updateAppBadge();
@@ -837,6 +855,25 @@ function applyMessageDelete(event) {
 }
 
 async function receiveSocketEvent(event) {
+  if (event.type === "session_revoked") {
+    currentUser = null;
+    selectedContact = null;
+    if (socket) socket.close();
+    if (adminDialog.open) adminDialog.close();
+    if (profileDialog.open) profileDialog.close();
+    showAuth();
+    document.querySelector("#auth-error").textContent = event.reason || "Your session ended.";
+    return;
+  }
+  if (event.type === "session_refresh") {
+    await initialize();
+    return;
+  }
+  if (event.type === "members_changed") {
+    await loadContacts();
+    if (currentUser.is_admin && adminDialog.open) await loadAdminOverview();
+    return;
+  }
   if (event.type === "member_added") {
     await loadContacts();
     return;
@@ -939,6 +976,122 @@ async function showChat() {
     showNotificationStatus(
       "Sign out before accepting an invitation for another family member.",
     );
+  }
+}
+
+function adminButton(label, action, id, style = "") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.dataset.action = action;
+  button.dataset.id = id;
+  if (style) button.className = style;
+  return button;
+}
+
+function renderAdminOverview(data) {
+  const membersElement = document.querySelector("#admin-members");
+  const invitationsElement = document.querySelector("#admin-invitations");
+  membersElement.replaceChildren();
+  invitationsElement.replaceChildren();
+
+  const passkeysByUser = new Map();
+  data.passkeys.forEach((passkey) => {
+    const list = passkeysByUser.get(passkey.user_id) || [];
+    list.push(passkey);
+    passkeysByUser.set(passkey.user_id, list);
+  });
+
+  data.members.forEach((member) => {
+    const row = document.createElement("article");
+    row.className = "admin-row";
+    const main = document.createElement("div");
+    main.className = "admin-row-main";
+    const details = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = member.display_name;
+    const identity = document.createElement("small");
+    identity.textContent = `${member.email || `@${member.username}`} · joined ${formatDateTime(member.created_at)}`;
+    details.append(name, identity);
+    const badge = document.createElement("span");
+    badge.className = `admin-badge${member.disabled_at ? " disabled" : ""}`;
+    badge.textContent = member.disabled_at ? "Disabled" : member.is_admin ? "Admin" : "Member";
+    main.append(details, badge);
+    row.append(main);
+
+    const actions = document.createElement("div");
+    actions.className = "admin-actions";
+    if (member.id !== currentUser.id) {
+      actions.append(
+        adminButton(member.disabled_at ? "Enable" : "Disable", "toggle-disabled", member.id, "secondary"),
+        adminButton(member.is_admin ? "Remove admin" : "Make admin", "toggle-admin", member.id, "secondary"),
+        adminButton("Sign out devices", "sign-out", member.id, "secondary"),
+        adminButton("Remove account", "delete-user", member.id, "danger"),
+      );
+    } else {
+      const self = document.createElement("small");
+      self.textContent = "This is your account.";
+      actions.append(self);
+    }
+    row.append(actions);
+
+    const memberPasskeys = passkeysByUser.get(member.id) || [];
+    if (memberPasskeys.length) {
+      const passkeyList = document.createElement("div");
+      passkeyList.className = "admin-passkeys";
+      memberPasskeys.forEach((passkey) => {
+        const item = document.createElement("div");
+        item.className = "admin-passkey";
+        const text = document.createElement("span");
+        const type = passkey.device_type === "multi_device" ? "Synced passkey" : "Device passkey";
+        text.textContent = `${type} · last used ${formatDateTime(passkey.last_used_at)}`;
+        item.append(text, adminButton("Revoke", "revoke-passkey", passkey.id, "danger"));
+        passkeyList.append(item);
+      });
+      row.append(passkeyList);
+    }
+    membersElement.append(row);
+  });
+
+  if (!data.invitations.length) {
+    invitationsElement.textContent = "No invitations yet.";
+  }
+  data.invitations.forEach((invitation) => {
+    const row = document.createElement("article");
+    row.className = "admin-row";
+    const main = document.createElement("div");
+    main.className = "admin-row-main";
+    const details = document.createElement("div");
+    const email = document.createElement("strong");
+    email.textContent = invitation.email;
+    const meta = document.createElement("small");
+    meta.textContent = `${invitation.suggested_name || "No suggested name"} · sent ${formatDateTime(invitation.created_at)}`;
+    details.append(email, meta);
+    const badge = document.createElement("span");
+    badge.className = `admin-badge ${invitation.status}`;
+    badge.textContent = invitation.status;
+    main.append(details, badge);
+    row.append(main);
+    if (invitation.status !== "accepted") {
+      const actions = document.createElement("div");
+      actions.className = "admin-actions";
+      actions.append(
+        adminButton("Resend", "resend-invitation", invitation.id),
+        adminButton("Revoke", "revoke-invitation", invitation.id, "danger"),
+      );
+      row.append(actions);
+    }
+    invitationsElement.append(row);
+  });
+}
+
+async function loadAdminOverview() {
+  const error = document.querySelector("#admin-error");
+  error.textContent = "";
+  try {
+    renderAdminOverview(await api("/api/admin/overview"));
+  } catch (exception) {
+    error.textContent = exception.message;
   }
 }
 
@@ -1454,7 +1607,72 @@ window.addEventListener("online", () => {
   if (!offlineView.classList.contains("hidden")) window.location.reload();
 });
 
-document.querySelector("#add-member-button").addEventListener("click", () => memberDialog.showModal());
+document.querySelector("#add-member-button").addEventListener("click", async () => {
+  adminDialog.showModal();
+  await loadAdminOverview();
+});
+document.querySelector("#close-admin").addEventListener("click", () => adminDialog.close());
+document.querySelector("#refresh-admin").addEventListener("click", loadAdminOverview);
+document.querySelector("#invite-from-admin").addEventListener("click", () => {
+  adminDialog.close();
+  document.querySelector("#member-error").textContent = "";
+  document.querySelector("#member-form").reset();
+  memberDialog.showModal();
+});
+document.querySelector("#admin-dialog").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-action]");
+  if (!button) return;
+  const id = Number(button.dataset.id);
+  const action = button.dataset.action;
+  let path;
+  let options = { method: "POST" };
+  let confirmation = null;
+
+  if (action === "toggle-disabled") {
+    path = `/api/admin/users/${id}/toggle-disabled`;
+    confirmation = `${button.textContent} this family member?`;
+  } else if (action === "toggle-admin") {
+    const makeAdmin = button.textContent === "Make admin";
+    path = `/api/admin/users/${id}/role`;
+    options.body = JSON.stringify({ is_admin: makeAdmin });
+    confirmation = makeAdmin
+      ? "Give this member administrator access?"
+      : "Remove administrator access from this member?";
+  } else if (action === "sign-out") {
+    path = `/api/admin/users/${id}/sign-out`;
+    confirmation = "Sign this member out from every device?";
+  } else if (action === "delete-user") {
+    path = `/api/admin/users/${id}`;
+    options.method = "DELETE";
+    confirmation = "Permanently remove this account and all of its messages and files?";
+  } else if (action === "revoke-passkey") {
+    path = `/api/admin/passkeys/${id}`;
+    options.method = "DELETE";
+    confirmation = "Revoke this passkey? That device may no longer be able to sign in.";
+  } else if (action === "resend-invitation") {
+    path = `/api/admin/invitations/${id}/resend`;
+  } else if (action === "revoke-invitation") {
+    path = `/api/admin/invitations/${id}`;
+    options.method = "DELETE";
+    confirmation = "Revoke this invitation link?";
+  } else {
+    return;
+  }
+
+  if (confirmation && !window.confirm(confirmation)) return;
+  const error = document.querySelector("#admin-error");
+  error.textContent = "";
+  button.disabled = true;
+  try {
+    await api(path, options);
+    await loadAdminOverview();
+    await loadContacts();
+  } catch (exception) {
+    error.textContent = exception.message;
+  } finally {
+    button.disabled = false;
+  }
+});
 document.querySelector("#cancel-member").addEventListener("click", () => memberDialog.close());
 document.querySelector("#member-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1471,6 +1689,8 @@ document.querySelector("#member-form").addEventListener("submit", async (event) 
     event.target.reset();
     memberDialog.close();
     showNotificationStatus(`Invitation sent to ${result.email}.`);
+    adminDialog.showModal();
+    await loadAdminOverview();
   } catch (exception) {
     error.textContent = exception.message;
   }

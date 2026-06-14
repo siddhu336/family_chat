@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-  <link rel="stylesheet" href="/static/style.css?v=14">
+  <link rel="stylesheet" href="/static/style.css?v=15">
 </head>
 <body>
   <main id="offline-view" class="centered hidden">
@@ -67,7 +67,7 @@
         <div class="sidebar-actions">
           <button id="install-button" class="icon-button hidden" data-icon="download" title="Install app" aria-label="Install app"></button>
           <button id="profile-button" class="icon-button" data-icon="user" title="Edit profile" aria-label="Edit profile"></button>
-          <button id="add-member-button" class="icon-button hidden" data-icon="user-plus" title="Add member" aria-label="Add member"></button>
+          <button id="add-member-button" class="icon-button hidden" data-icon="settings" title="Manage family" aria-label="Manage family"></button>
           <button id="change-password-button" class="icon-button" data-icon="key" title="Change password" aria-label="Change password"></button>
           <button id="logout-button" class="icon-button" data-icon="log-out" title="Sign out" aria-label="Sign out"></button>
         </div>
@@ -152,6 +152,29 @@
     </form>
   </dialog>
 
+  <dialog id="admin-dialog" class="wide-dialog">
+    <section class="card admin-card">
+      <div class="admin-heading">
+        <div>
+          <h2>Manage family</h2>
+          <p>Members, invitations, devices, and access.</p>
+        </div>
+        <button id="close-admin" class="admin-close" type="button" data-icon="x" title="Close" aria-label="Close"></button>
+      </div>
+      <div class="admin-toolbar">
+        <button id="invite-from-admin" type="button" data-icon="user-plus">
+          <span>Invite member</span>
+        </button>
+        <button id="refresh-admin" class="secondary" type="button">Refresh</button>
+      </div>
+      <p id="admin-error" class="error"></p>
+      <h3>Members</h3>
+      <div id="admin-members" class="admin-list"></div>
+      <h3>Invitations</h3>
+      <div id="admin-invitations" class="admin-list"></div>
+    </section>
+  </dialog>
+
   <dialog id="member-dialog">
     <form id="member-form" method="dialog" class="card">
       <h2>Invite family member</h2>
@@ -194,6 +217,6 @@
     </form>
   </dialog>
 
-  <script src="/static/app.js?v=16"></script>
+  <script src="/static/app.js?v=17"></script>
 </body>
 </html>

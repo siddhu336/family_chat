@@ -491,6 +491,89 @@ input {
 
 dialog { border: 0; border-radius: 14px; padding: 0; width: min(420px, calc(100% - 30px)); }
 dialog::backdrop { background: #0008; }
+.wide-dialog { width: min(760px, calc(100% - 24px)); }
+.admin-card { max-height: min(820px, calc(100dvh - 30px)); overflow-y: auto; }
+.admin-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.admin-heading h2, .admin-heading p { margin-bottom: 5px; }
+.admin-heading p { color: #667781; }
+.admin-close {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 50%;
+  background: #e9edef;
+  color: #54656f;
+}
+.admin-toolbar { display: flex; gap: 8px; margin: 16px 0; }
+.admin-toolbar button, .admin-actions button, .admin-passkey button {
+  width: auto;
+  min-height: 36px;
+  padding: 8px 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 8px;
+  background: #008069;
+  color: white;
+  font-weight: 700;
+}
+.admin-toolbar .secondary, .admin-actions .secondary {
+  background: #e9edef;
+  color: #111b21;
+}
+.admin-list { display: grid; gap: 9px; margin-bottom: 20px; }
+.admin-row {
+  padding: 12px;
+  display: grid;
+  gap: 9px;
+  border: 1px solid #e2e6e8;
+  border-radius: 10px;
+}
+.admin-row-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.admin-row-main > div { min-width: 0; }
+.admin-row strong, .admin-row small { display: block; }
+.admin-row small { margin-top: 3px; color: #667781; overflow-wrap: anywhere; }
+.admin-badge {
+  width: fit-content;
+  padding: 3px 7px;
+  border-radius: 10px;
+  background: #e7f8f4;
+  color: #006b5b;
+  font-size: 11px;
+  font-weight: 800;
+}
+.admin-badge.disabled, .admin-badge.expired { background: #fef3f2; color: #b42318; }
+.admin-badge.accepted { background: #e9edef; color: #54656f; }
+.admin-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.admin-actions .danger, .admin-passkey .danger { background: #b42318; }
+.admin-passkeys {
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid #eef0f1;
+}
+.admin-passkey {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  color: #667781;
+  font-size: 12px;
+}
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .dialog-actions button { width: auto; }
 .dialog-actions .secondary { background: #e9edef; color: #111b21; }
@@ -572,6 +655,8 @@ dialog::backdrop { background: #0008; }
   .icon-button { width: 42px; height: 42px; }
   .contact { min-height: 68px; }
   input { font-size: 16px; }
+  .wide-dialog { width: 100%; max-width: none; margin: 0; border-radius: 0; }
+  .admin-card { min-height: 100dvh; max-height: 100dvh; border-radius: 0; padding: 18px; }
 }
 
 @media (display-mode: standalone) {

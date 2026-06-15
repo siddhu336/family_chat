@@ -1,9 +1,9 @@
-const CACHE_NAME = "family-chat-shell-v9";
+const CACHE_NAME = "family-chat-shell-v13";
 const APP_SHELL = [
   "/",
   "/manifest.webmanifest",
-  "/static/style.css?v=15",
-  "/static/app.js?v=17",
+  "/static/style.css?v=19",
+  "/static/app.js?v=21",
   "/static/icons/icon.svg",
   "/static/icons/icon-192.png",
   "/static/icons/icon-512.png",
@@ -60,7 +60,7 @@ self.addEventListener("push", (event) => {
       tag: payload.tag || "family-chat-message",
       icon: "/static/icons/icon-192.png",
       badge: "/static/icons/icon-192.png",
-      data: { contactId: payload.contactId },
+      data: { contactId: payload.contactId, groupId: payload.groupId },
     }),
   );
 });
@@ -68,7 +68,10 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const contactId = event.notification.data?.contactId;
-  const target = contactId ? `/?contact=${contactId}` : "/";
+  const groupId = event.notification.data?.groupId;
+  const target = groupId
+    ? `/?group=${groupId}`
+    : contactId ? `/?contact=${contactId}` : "/";
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       const existing = clients.find((client) => "focus" in client);

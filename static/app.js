@@ -12,6 +12,10 @@ const adminDialog = document.querySelector("#admin-dialog");
 const changePasswordDialog = document.querySelector("#change-password-dialog");
 const resetPasswordDialog = document.querySelector("#reset-password-dialog");
 const profileDialog = document.querySelector("#profile-dialog");
+const groupDialog = document.querySelector("#group-dialog");
+const groupInfoDialog = document.querySelector("#group-info-dialog");
+const mediaDialog = document.querySelector("#media-dialog");
+const imageViewerDialog = document.querySelector("#image-viewer-dialog");
 const notificationButton = document.querySelector("#notification-button");
 const notificationStatus = document.querySelector("#notification-status");
 const conversationStatus = document.querySelector("#conversation-status");
@@ -22,6 +26,7 @@ const attachmentInput = document.querySelector("#attachment-input");
 const cameraInput = document.querySelector("#camera-input");
 const attachmentPreview = document.querySelector("#attachment-preview");
 const uploadProgress = document.querySelector("#upload-progress");
+const voiceRecording = document.querySelector("#voice-recording");
 
 const icons = {
   "arrow-left": '<path d="m15 18-6-6 6-6"/><path d="M9 12h10"/>',
@@ -31,16 +36,22 @@ const icons = {
   download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/>',
   fingerprint: '<path d="M12 11a2 2 0 0 1 2 2c0 2.5-.5 5-1.5 7"/><path d="M8.2 21a16 16 0 0 0 1.8-8 2 2 0 0 1 4 0"/><path d="M5 18a20 20 0 0 0 1-5 6 6 0 0 1 12 0c0 2-.2 4-.7 6"/><path d="M4.5 8.5a9 9 0 0 1 15 0"/><path d="M8 4.5a9 9 0 0 1 8 0"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  image: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/>',
   key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m12 12 8-8"/><path d="m15 7 2 2"/><path d="m18 4 2 2"/>',
   "key-round": '<path d="M21 2 13.6 9.4"/><circle cx="7.5" cy="15.5" r="5.5"/><path d="m18 5 2 2"/><path d="m15 8 2 2"/>',
   "log-out": '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>',
+  mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/><path d="M8 22h8"/>',
   paperclip: '<path d="m21.4 11.6-8.9 8.9a6 6 0 0 1-8.5-8.5l9.6-9.6a4 4 0 0 1 5.7 5.7l-9.6 9.6a2 2 0 0 1-2.8-2.8l8.9-8.9"/>',
   reply: '<path d="m9 17-5-5 5-5"/><path d="M4 12h10a6 6 0 0 1 6 6v1"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/>',
   send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/>',
+  square: '<rect width="14" height="14" x="5" y="5" rx="2"/>',
   trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/>',
   user: '<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   "user-plus": '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
 };
@@ -76,8 +87,20 @@ let typingStopTimer = null;
 let replyToMessage = null;
 let editingMessage = null;
 let selectedAttachment = null;
+let selectedAttachmentDuration = null;
 let attachmentObjectUrl = null;
 let maxAttachmentBytes = 10 * 1024 * 1024;
+let maxVoiceSeconds = 300;
+let imageMaxDimension = 1920;
+let imageCompressionQuality = 0.82;
+let mediaRecorder = null;
+let recordingStream = null;
+let recordingChunks = [];
+let recordingStartedAt = 0;
+let recordingTimer = null;
+let discardRecording = false;
+let conversationMedia = [];
+let mediaFilter = "image";
 let maxAvatarBytes = 2 * 1024 * 1024;
 let profileAvatarFile = null;
 let removeProfileAvatar = false;
@@ -202,6 +225,50 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatDuration(seconds) {
+  const safeSeconds = Math.max(0, Math.round(seconds || 0));
+  return `${Math.floor(safeSeconds / 60)}:${String(safeSeconds % 60).padStart(2, "0")}`;
+}
+
+async function compressImage(file) {
+  if (
+    !file.type.startsWith("image/")
+    || file.type === "image/gif"
+    || !window.createImageBitmap
+  ) {
+    return file;
+  }
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+    const largestSide = Math.max(bitmap.width, bitmap.height);
+    if (largestSide <= imageMaxDimension && file.size < 1024 * 1024) {
+      return file;
+    }
+    const scale = Math.min(1, imageMaxDimension / largestSide);
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    context.drawImage(bitmap, 0, 0, width, height);
+    const blob = await new Promise((resolve) => {
+      canvas.toBlob(resolve, "image/webp", imageCompressionQuality);
+    });
+    if (!blob || blob.size >= file.size) return file;
+    const baseName = file.name.replace(/\.[^.]+$/, "") || "photo";
+    return new File([blob], `${baseName}.webp`, {
+      type: "image/webp",
+      lastModified: Date.now(),
+    });
+  } catch {
+    return file;
+  } finally {
+    bitmap?.close();
+  }
+}
+
 function formatLastSeen(timestamp) {
   if (!timestamp) return "offline";
   const date = new Date(timestamp * 1000);
@@ -226,6 +293,14 @@ function formatDateTime(timestamp) {
 function updateConversationStatus() {
   if (!selectedContact) {
     conversationStatus.textContent = "Private conversation";
+    return;
+  }
+  if (selectedContact.conversation_type === "group") {
+    conversationStatus.classList.remove("typing");
+    conversationStatus.textContent = typingContactId
+      ? typingContactId
+      : `${selectedContact.member_count} members`;
+    document.querySelector("#conversation-avatar").classList.remove("online");
     return;
   }
   if (typingContactId === selectedContact.id) {
@@ -302,12 +377,17 @@ function renderContacts() {
 
   contacts.forEach((contact) => {
     const button = document.createElement("button");
-    button.className = `contact${selectedContact?.id === contact.id ? " selected" : ""}`;
+    const isSelected = selectedContact?.id === contact.id
+      && selectedContact?.conversation_type === contact.conversation_type;
+    button.className = `contact${isSelected ? " selected" : ""}`;
     button.type = "button";
-    button.addEventListener("click", () => selectContact(contact.id));
+    button.addEventListener("click", () => selectContact(
+      contact.id,
+      contact.conversation_type,
+    ));
 
     const avatar = document.createElement("span");
-    avatar.className = `avatar${contact.is_online ? " online" : ""}`;
+    avatar.className = `avatar${contact.is_online ? " online" : ""}${contact.conversation_type === "group" ? " group-avatar" : ""}`;
     renderAvatar(avatar, contact);
 
     const details = document.createElement("span");
@@ -321,6 +401,12 @@ function renderContacts() {
       || contact.last_message_deleted_at
     ) {
       if (contact.last_message_user_id === currentUser.id) {
+        if (contact.conversation_type === "group") {
+          const preview = contact.last_message_deleted_at
+            ? "Message deleted"
+            : contact.last_message_body || `Attachment: ${contact.last_message_attachment_name}`;
+          username.textContent = `You: ${preview}`;
+        } else {
         const receipt = document.createElement("span");
         receipt.className = "contact-receipt";
         receipt.textContent = contact.last_message_read_at
@@ -333,13 +419,19 @@ function renderContacts() {
           ? "Message deleted"
           : contact.last_message_body || `Attachment: ${contact.last_message_attachment_name}`;
         username.append(receipt, document.createTextNode(` You: ${preview}`));
+        }
       } else {
-        username.textContent = contact.last_message_deleted_at
+        const preview = contact.last_message_deleted_at
           ? "Message deleted"
           : contact.last_message_body || `Attachment: ${contact.last_message_attachment_name}`;
+        username.textContent = contact.conversation_type === "group"
+          ? `${contact.last_message_display_name}: ${preview}`
+          : preview;
       }
     } else {
-      username.textContent = contact.is_online ? "online" : `@${contact.username}`;
+      username.textContent = contact.conversation_type === "group"
+        ? `${contact.member_count} members`
+        : contact.is_online ? "online" : `@${contact.username}`;
     }
     details.append(name, username);
 
@@ -361,20 +453,79 @@ function renderContacts() {
 }
 
 async function loadContacts() {
-  contacts = await api("/api/contacts");
+  const [privateContacts, groups] = await Promise.all([
+    api("/api/contacts"),
+    api("/api/groups"),
+  ]);
+  contacts = [...groups, ...privateContacts].sort(
+    (left, right) => (right.last_message_at || 0) - (left.last_message_at || 0),
+  );
   const hadSelectedContact = Boolean(selectedContact);
   if (selectedContact) {
-    selectedContact = contacts.find((contact) => contact.id === selectedContact.id) || null;
+    selectedContact = contacts.find((contact) => (
+      contact.id === selectedContact.id
+      && contact.conversation_type === selectedContact.conversation_type
+    )) || null;
   }
   if (hadSelectedContact && !selectedContact) {
+    if (groupInfoDialog.open) groupInfoDialog.close();
     chatView.classList.remove("conversation-open");
     conversation.classList.add("empty");
     activeConversation.classList.add("hidden");
     emptyConversation.classList.remove("hidden");
+    document.querySelector("#group-info-button").classList.add("hidden");
     messages.replaceChildren();
   }
   renderContacts();
   updateAppBadge();
+}
+
+function clearSearch() {
+  document.querySelector("#search-input").value = "";
+  document.querySelector("#search-results").replaceChildren();
+  document.querySelector("#search-results").classList.add("hidden");
+  document.querySelector("#contacts").classList.remove("hidden");
+  document.querySelector("#clear-search").classList.add("hidden");
+}
+
+function renderSearchResults(results) {
+  const container = document.querySelector("#search-results");
+  container.replaceChildren();
+  if (!results.length) {
+    const empty = document.createElement("p");
+    empty.className = "contacts-empty";
+    empty.textContent = "No matching messages.";
+    container.append(empty);
+  }
+  results.forEach((result) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "search-result";
+    const heading = document.createElement("span");
+    heading.className = "search-result-heading";
+    const conversationName = document.createElement("strong");
+    conversationName.textContent = result.conversation_name;
+    const time = document.createElement("small");
+    time.textContent = formatDateTime(result.created_at);
+    heading.append(conversationName, time);
+    const sender = document.createElement("small");
+    sender.textContent = result.sender_name;
+    const preview = document.createElement("span");
+    preview.textContent = result.body || `Attachment: ${result.attachment_name}`;
+    button.append(heading, sender, preview);
+    button.addEventListener("click", async () => {
+      clearSearch();
+      await selectContact(
+        result.conversation_id,
+        result.conversation_type,
+        result.message_id,
+      );
+    });
+    container.append(button);
+  });
+  container.classList.remove("hidden");
+  document.querySelector("#contacts").classList.add("hidden");
+  document.querySelector("#clear-search").classList.remove("hidden");
 }
 
 function totalUnreadCount() {
@@ -400,6 +551,13 @@ function appendMessage(message) {
   article.className = `message${message.user_id === currentUser.id ? " mine" : ""}`;
   article.dataset.messageId = message.id;
 
+  if (message.group_id && message.user_id !== currentUser.id) {
+    const sender = document.createElement("strong");
+    sender.className = "group-message-sender";
+    sender.textContent = message.display_name;
+    article.append(sender);
+  }
+
   if (message.reply_to_id) {
     const quote = document.createElement("button");
     quote.type = "button";
@@ -423,6 +581,20 @@ function appendMessage(message) {
   body.textContent = message.deleted_at ? "Message deleted" : message.body;
   body.classList.toggle("deleted", Boolean(message.deleted_at));
   if (message.attachment_url && !message.deleted_at) {
+    if (message.attachment_content_type?.startsWith("audio/")) {
+      const voice = document.createElement("div");
+      voice.className = "voice-message";
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.preload = "metadata";
+      audio.src = message.attachment_url;
+      const duration = document.createElement("small");
+      duration.textContent = message.attachment_duration_seconds
+        ? `Voice message · ${formatDuration(message.attachment_duration_seconds)}`
+        : "Voice message";
+      voice.append(audio, duration);
+      article.append(voice);
+    } else {
     const attachmentLink = document.createElement("a");
     attachmentLink.className = "message-attachment";
     attachmentLink.href = message.attachment_url;
@@ -435,6 +607,13 @@ function appendMessage(message) {
       image.alt = message.attachment_name;
       image.loading = "lazy";
       attachmentLink.append(image);
+      attachmentLink.addEventListener("click", (event) => {
+        event.preventDefault();
+        showImageViewer(
+          message.attachment_url,
+          message.attachment_name,
+        );
+      });
     } else {
       const fileIcon = document.createElement("span");
       fileIcon.className = "file-icon";
@@ -450,6 +629,7 @@ function appendMessage(message) {
     details.append(name, size);
     attachmentLink.append(details);
     article.append(attachmentLink);
+    }
   }
   const footer = document.createElement("footer");
   const edited = document.createElement("span");
@@ -517,8 +697,10 @@ function clearComposerContext() {
 
 function clearAttachment() {
   selectedAttachment = null;
+  selectedAttachmentDuration = null;
   attachmentInput.value = "";
   attachmentPreview.classList.add("hidden");
+  attachmentPreview.classList.remove("voice-preview");
   uploadProgress.classList.add("hidden");
   uploadProgress.value = 0;
   document.querySelector("#attachment-preview-content").replaceChildren();
@@ -528,7 +710,11 @@ function clearAttachment() {
   }
 }
 
-function showAttachment(file) {
+async function showAttachment(file, durationSeconds = null) {
+  const originalSize = file.size;
+  if (file.type.startsWith("image/")) {
+    file = await compressImage(file);
+  }
   if (file.size > maxAttachmentBytes) {
     attachmentInput.value = "";
     alert(`File is larger than ${formatBytes(maxAttachmentBytes)}.`);
@@ -536,10 +722,24 @@ function showAttachment(file) {
   }
   clearAttachment();
   selectedAttachment = file;
+  selectedAttachmentDuration = durationSeconds;
   document.querySelector("#attachment-preview-name").textContent = file.name;
   document.querySelector("#attachment-preview-size").textContent = formatBytes(file.size);
+  if (file.size < originalSize) {
+    document.querySelector("#attachment-preview-size").textContent =
+      `${formatBytes(file.size)} · compressed from ${formatBytes(originalSize)}`;
+  }
   const content = document.querySelector("#attachment-preview-content");
-  if (file.type.startsWith("image/")) {
+  if (file.type.startsWith("audio/")) {
+    attachmentPreview.classList.add("voice-preview");
+    attachmentObjectUrl = URL.createObjectURL(file);
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.src = attachmentObjectUrl;
+    content.append(audio);
+    document.querySelector("#attachment-preview-size").textContent =
+      `${formatDuration(durationSeconds)} · ${formatBytes(file.size)}`;
+  } else if (file.type.startsWith("image/")) {
     attachmentObjectUrl = URL.createObjectURL(file);
     const image = document.createElement("img");
     image.src = attachmentObjectUrl;
@@ -554,13 +754,23 @@ function showAttachment(file) {
 function uploadAttachment(file, body) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
-    form.append("recipient_id", selectedContact.id);
+    if (selectedContact.conversation_type === "private") {
+      form.append("recipient_id", selectedContact.id);
+    }
     form.append("body", body);
     if (replyToMessage) form.append("reply_to_id", replyToMessage.id);
+    if (selectedAttachmentDuration) {
+      form.append("attachment_duration_seconds", selectedAttachmentDuration);
+    }
     form.append("attachment", file);
 
     const request = new XMLHttpRequest();
-    request.open("POST", "/api/messages/attachment");
+    request.open(
+      "POST",
+      selectedContact.conversation_type === "group"
+        ? `/api/groups/${selectedContact.id}/attachment`
+        : "/api/messages/attachment",
+    );
     request.responseType = "json";
     request.upload.onprogress = (event) => {
       if (!event.lengthComputable) return;
@@ -577,6 +787,111 @@ function uploadAttachment(file, body) {
     request.onerror = () => reject(new Error("Upload failed"));
     request.send(form);
   });
+}
+
+function supportedVoiceMimeType() {
+  return [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4",
+    "audio/ogg;codecs=opus",
+  ].find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function voiceFileDetails(mimeType) {
+  if (mimeType.startsWith("audio/mp4")) return { type: "audio/mp4", extension: "m4a" };
+  if (mimeType.startsWith("audio/ogg")) return { type: "audio/ogg", extension: "ogg" };
+  return { type: "audio/webm", extension: "webm" };
+}
+
+function stopRecordingTracks() {
+  recordingStream?.getTracks().forEach((track) => track.stop());
+  recordingStream = null;
+}
+
+function resetRecordingUi() {
+  clearInterval(recordingTimer);
+  recordingTimer = null;
+  recordingStartedAt = 0;
+  voiceRecording.classList.add("hidden");
+  document.querySelector("#voice-recording-time").textContent = "0:00";
+  document.querySelector("#message-form").classList.remove("recording");
+  stopRecordingTracks();
+}
+
+function cancelVoiceRecording() {
+  discardRecording = true;
+  if (mediaRecorder?.state === "recording") {
+    mediaRecorder.stop();
+  } else {
+    resetRecordingUi();
+  }
+}
+
+async function startVoiceRecording() {
+  if (!selectedContact) return;
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    alert("Voice recording is not supported by this browser.");
+    return;
+  }
+  clearAttachment();
+  if (editingMessage) clearComposerContext();
+  messageInput.value = "";
+  try {
+    recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mimeType = supportedVoiceMimeType();
+    mediaRecorder = mimeType
+      ? new MediaRecorder(recordingStream, { mimeType })
+      : new MediaRecorder(recordingStream);
+    recordingChunks = [];
+    discardRecording = false;
+    mediaRecorder.addEventListener("dataavailable", (event) => {
+      if (event.data.size) recordingChunks.push(event.data);
+    });
+    mediaRecorder.addEventListener("stop", () => {
+      const duration = Math.max(
+        1,
+        Math.min(
+          maxVoiceSeconds,
+          Math.round((Date.now() - recordingStartedAt) / 1000),
+        ),
+      );
+      const recordedType = mediaRecorder.mimeType || mimeType || "audio/webm";
+      resetRecordingUi();
+      if (discardRecording || !recordingChunks.length) {
+        recordingChunks = [];
+        return;
+      }
+      const details = voiceFileDetails(recordedType);
+      const blob = new Blob(recordingChunks, { type: details.type });
+      recordingChunks = [];
+      const file = new File(
+        [blob],
+        `voice-${Date.now()}.${details.extension}`,
+        { type: details.type },
+      );
+      showAttachment(file, duration);
+    }, { once: true });
+    mediaRecorder.start(250);
+    recordingStartedAt = Date.now();
+    voiceRecording.classList.remove("hidden");
+    document.querySelector("#message-form").classList.add("recording");
+    recordingTimer = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - recordingStartedAt) / 1000);
+      document.querySelector("#voice-recording-time").textContent =
+        formatDuration(elapsed);
+      if (elapsed >= maxVoiceSeconds && mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+      }
+    }, 250);
+  } catch (exception) {
+    resetRecordingUi();
+    alert(
+      exception.name === "NotAllowedError"
+        ? "Microphone permission was not granted."
+        : `Could not start recording: ${exception.message}`,
+    );
+  }
 }
 
 function showComposerContext(title, body) {
@@ -621,18 +936,37 @@ async function deleteMessage(message) {
 
 async function markSelectedConversationRead() {
   if (!selectedContact) return;
-  await api(`/api/messages/${selectedContact.id}/read`, { method: "POST" });
-  const contact = contacts.find((item) => item.id === selectedContact.id);
+  const path = selectedContact.conversation_type === "group"
+    ? `/api/groups/${selectedContact.id}/read`
+    : `/api/messages/${selectedContact.id}/read`;
+  await api(path, { method: "POST" });
+  const contact = contacts.find((item) => (
+    item.id === selectedContact.id
+    && item.conversation_type === selectedContact.conversation_type
+  ));
   if (contact) contact.unread_count = 0;
   renderContacts();
   updateAppBadge();
 }
 
-async function selectContact(contactId) {
-  if (selectedContact && selectedContact.id !== contactId) {
+async function selectContact(
+  contactId,
+  conversationType = "private",
+  targetMessageId = null,
+) {
+  if (mediaRecorder?.state === "recording") cancelVoiceRecording();
+  if (
+    selectedContact
+    && (
+      selectedContact.id !== contactId
+      || selectedContact.conversation_type !== conversationType
+    )
+  ) {
     sendTyping(false);
   }
-  selectedContact = contacts.find((contact) => contact.id === contactId);
+  selectedContact = contacts.find((contact) => (
+    contact.id === contactId && contact.conversation_type === conversationType
+  ));
   if (!selectedContact) return;
 
   renderContacts();
@@ -644,16 +978,149 @@ async function selectContact(contactId) {
   renderAvatar(document.querySelector("#conversation-avatar"), selectedContact);
   document.querySelector("#reset-password-button").classList.toggle(
     "hidden",
-    !currentUser.is_admin,
+    !currentUser.is_admin || selectedContact.conversation_type === "group",
+  );
+  document.querySelector("#group-info-button").classList.toggle(
+    "hidden",
+    selectedContact.conversation_type !== "group",
   );
   updateConversationStatus();
   messages.replaceChildren();
   messagesById.clear();
   clearComposerContext();
   clearAttachment();
-  (await api(`/api/messages/${selectedContact.id}`)).forEach(appendMessage);
+  const messagesPath = selectedContact.conversation_type === "group"
+    ? `/api/groups/${selectedContact.id}/messages`
+    : `/api/messages/${selectedContact.id}`;
+  const targetQuery = targetMessageId ? `?target=${targetMessageId}` : "";
+  (await api(`${messagesPath}${targetQuery}`)).forEach(appendMessage);
   await markSelectedConversationRead();
+  if (targetMessageId) {
+    const target = document.querySelector(
+      `[data-message-id="${targetMessageId}"]`,
+    );
+    target?.classList.add("search-highlight");
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => target?.classList.remove("search-highlight"), 2500);
+  }
   document.querySelector("#message-input").focus();
+}
+
+function showImageViewer(url, name) {
+  const image = document.querySelector("#image-viewer-image");
+  image.src = url;
+  image.alt = name || "Conversation photo";
+  document.querySelector("#image-viewer-title").textContent = name || "Photo";
+  const download = document.querySelector("#image-viewer-download");
+  download.href = url;
+  download.download = name || "photo";
+  if (!imageViewerDialog.open) imageViewerDialog.showModal();
+}
+
+function mediaCategory(item) {
+  if (item.attachment_content_type?.startsWith("image/")) return "image";
+  if (item.attachment_content_type?.startsWith("audio/")) return "audio";
+  return "document";
+}
+
+function mediaActionButton(label, handler) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.addEventListener("click", handler);
+  return button;
+}
+
+function renderConversationMedia() {
+  const container = document.querySelector("#media-items");
+  const filtered = conversationMedia.filter(
+    (item) => mediaCategory(item) === mediaFilter,
+  );
+  container.replaceChildren();
+  container.className = `media-items ${mediaFilter}`;
+  document.querySelector("#media-summary").textContent =
+    `${conversationMedia.length} shared items`;
+  document.querySelectorAll("#media-tabs button").forEach((button) => {
+    button.classList.toggle("selected", button.dataset.filter === mediaFilter);
+  });
+  if (!filtered.length) {
+    const empty = document.createElement("p");
+    empty.className = "contacts-empty";
+    empty.textContent = `No ${mediaFilter === "image" ? "photos" : mediaFilter === "audio" ? "voice messages" : "documents"} yet.`;
+    container.append(empty);
+    return;
+  }
+  filtered.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = "media-item";
+    if (mediaFilter === "image") {
+      const imageButton = document.createElement("button");
+      imageButton.type = "button";
+      imageButton.className = "media-image-button";
+      const image = document.createElement("img");
+      image.src = item.attachment_url;
+      image.alt = item.attachment_name;
+      image.loading = "lazy";
+      imageButton.append(image);
+      imageButton.addEventListener("click", () => {
+        showImageViewer(item.attachment_url, item.attachment_name);
+      });
+      card.append(imageButton);
+    } else if (mediaFilter === "audio") {
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.preload = "metadata";
+      audio.src = item.attachment_url;
+      card.append(audio);
+    } else {
+      const fileIcon = document.createElement("span");
+      fileIcon.className = "media-file-icon";
+      fileIcon.innerHTML = icon("paperclip");
+      card.append(fileIcon);
+    }
+    const details = document.createElement("div");
+    details.className = "media-item-details";
+    const name = document.createElement("strong");
+    name.textContent = item.attachment_name;
+    const meta = document.createElement("small");
+    const duration = item.attachment_duration_seconds
+      ? ` · ${formatDuration(item.attachment_duration_seconds)}`
+      : "";
+    meta.textContent =
+      `${item.sender_name} · ${formatDateTime(item.created_at)} · ${formatBytes(item.attachment_size)}${duration}`;
+    const actions = document.createElement("div");
+    actions.className = "media-item-actions";
+    const download = document.createElement("a");
+    download.href = item.attachment_url;
+    download.download = item.attachment_name;
+    download.textContent = "Download";
+    const jump = mediaActionButton("View message", async () => {
+      mediaDialog.close();
+      await selectContact(
+        selectedContact.id,
+        selectedContact.conversation_type,
+        item.message_id,
+      );
+    });
+    actions.append(download, jump);
+    details.append(name, meta, actions);
+    card.append(details);
+    container.append(card);
+  });
+}
+
+async function loadConversationMedia() {
+  if (!selectedContact) return;
+  const error = document.querySelector("#media-error");
+  error.textContent = "";
+  try {
+    conversationMedia = await api(
+      `/api/media?conversation_type=${selectedContact.conversation_type}&conversation_id=${selectedContact.id}`,
+    );
+    renderConversationMedia();
+  } catch (exception) {
+    error.textContent = exception.message;
+  }
 }
 
 async function updateNotificationButton() {
@@ -739,7 +1206,9 @@ function notifyIncomingMessage(message, sender) {
       tag: `family-message-${message.id}`,
       icon: "/static/icons/icon-192.png",
       badge: "/static/icons/icon-192.png",
-      data: { contactId: sender?.id || message.user_id },
+      data: message.group_id
+        ? { groupId: message.group_id }
+        : { contactId: sender?.id || message.user_id },
     };
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.ready.then((registration) => {
@@ -752,7 +1221,8 @@ function notifyIncomingMessage(message, sender) {
       );
       notification.onclick = () => {
         window.focus();
-        if (sender) selectContact(sender.id);
+        if (message.group_id) selectContact(message.group_id, "group");
+        else if (sender) selectContact(sender.id, "private");
         notification.close();
       };
     }
@@ -788,7 +1258,9 @@ function updateDeliveredReceipts(event) {
 }
 
 function updatePresence(event) {
-  const contact = contacts.find((item) => item.id === event.user_id);
+  const contact = contacts.find((item) => (
+    item.conversation_type === "private" && item.id === event.user_id
+  ));
   if (!contact) return;
   contact.is_online = event.is_online;
   if (event.last_seen) contact.last_seen = event.last_seen;
@@ -800,9 +1272,15 @@ function updatePresence(event) {
 }
 
 function updateTyping(event) {
-  if (event.user_id !== selectedContact?.id) return;
+  const isCurrentGroup = selectedContact?.conversation_type === "group"
+    && event.group_id === selectedContact.id;
+  const isCurrentPrivate = selectedContact?.conversation_type === "private"
+    && event.user_id === selectedContact.id;
+  if (!isCurrentGroup && !isCurrentPrivate) return;
   clearTimeout(remoteTypingTimer);
-  typingContactId = event.is_typing ? event.user_id : null;
+  typingContactId = event.is_typing
+    ? isCurrentGroup ? `${event.display_name} is typing...` : event.user_id
+    : null;
   updateConversationStatus();
   if (event.is_typing) {
     remoteTypingTimer = setTimeout(() => {
@@ -856,6 +1334,7 @@ function applyMessageDelete(event) {
 
 async function receiveSocketEvent(event) {
   if (event.type === "session_revoked") {
+    if (mediaRecorder?.state === "recording") cancelVoiceRecording();
     currentUser = null;
     selectedContact = null;
     if (socket) socket.close();
@@ -874,6 +1353,16 @@ async function receiveSocketEvent(event) {
     if (currentUser.is_admin && adminDialog.open) await loadAdminOverview();
     return;
   }
+  if (event.type === "groups_changed") {
+    await loadContacts();
+    if (
+      groupInfoDialog.open
+      && selectedContact?.conversation_type === "group"
+    ) {
+      await loadGroupInfo();
+    }
+    return;
+  }
   if (event.type === "member_added") {
     await loadContacts();
     return;
@@ -883,9 +1372,14 @@ async function receiveSocketEvent(event) {
       currentUser = { ...currentUser, ...event.user };
       document.querySelector("#identity").textContent = currentUser.display_name;
     }
-    const contact = contacts.find((item) => item.id === event.user.id);
+    const contact = contacts.find((item) => (
+      item.conversation_type === "private" && item.id === event.user.id
+    ));
     if (contact) Object.assign(contact, event.user);
-    if (selectedContact?.id === event.user.id) {
+    if (
+      selectedContact?.conversation_type === "private"
+      && selectedContact.id === event.user.id
+    ) {
       Object.assign(selectedContact, event.user);
       document.querySelector("#conversation-name").textContent = selectedContact.display_name;
       renderAvatar(document.querySelector("#conversation-avatar"), selectedContact);
@@ -917,16 +1411,45 @@ async function receiveSocketEvent(event) {
   if (event.type === "message_deleted") {
     applyMessageDelete(event);
     await loadContacts();
+    if (mediaDialog.open) await loadConversationMedia();
     return;
   }
   if (event.type !== "message") return;
 
   const message = event.message;
+  if (message.group_id) {
+    const group = contacts.find((item) => (
+      item.conversation_type === "group" && item.id === message.group_id
+    ));
+    const isOpen = selectedContact?.conversation_type === "group"
+      && selectedContact.id === message.group_id;
+    if (isOpen) {
+      appendMessage(message);
+      if (
+        message.user_id !== currentUser.id
+        && !document.hidden
+        && document.hasFocus()
+        && conversationIsVisible()
+      ) {
+        await markSelectedConversationRead();
+      }
+    }
+    await loadContacts();
+    updateConversationStatus();
+    if (mediaDialog.open && message.attachment_url) {
+      await loadConversationMedia();
+    }
+    notifyIncomingMessage(message, group);
+    return;
+  }
   const otherUserId = message.user_id === currentUser.id
     ? message.recipient_id
     : message.user_id;
-  const contact = contacts.find((item) => item.id === otherUserId);
-  const isOpen = selectedContact?.id === otherUserId;
+  const contact = contacts.find((item) => (
+    item.conversation_type === "private" && item.id === otherUserId
+  ));
+  const isOpen = selectedContact?.conversation_type === "private"
+    && selectedContact.id === otherUserId;
 
   if (isOpen) {
     appendMessage(message);
@@ -941,6 +1464,9 @@ async function receiveSocketEvent(event) {
   }
   await loadContacts();
   updateConversationStatus();
+  if (mediaDialog.open && message.attachment_url) {
+    await loadConversationMedia();
+  }
   notifyIncomingMessage(message, contact);
 }
 
@@ -964,12 +1490,25 @@ async function showChat() {
   chatView.classList.remove("hidden");
   document.querySelector("#identity").textContent = currentUser.display_name;
   document.querySelector("#add-member-button").classList.toggle("hidden", !currentUser.is_admin);
+  document.querySelector("#voice-button").classList.toggle(
+    "hidden",
+    !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder,
+  );
   await updateNotificationButton();
   await loadContacts();
   connectSocket();
   const contactId = Number(new URLSearchParams(window.location.search).get("contact"));
-  if (contactId && contacts.some((contact) => contact.id === contactId)) {
-    await selectContact(contactId);
+  if (contactId && contacts.some((contact) => (
+    contact.id === contactId && contact.conversation_type === "private"
+  ))) {
+    await selectContact(contactId, "private");
+    window.history.replaceState({}, "", "/");
+  }
+  const groupId = Number(new URLSearchParams(window.location.search).get("group"));
+  if (groupId && contacts.some((contact) => (
+    contact.id === groupId && contact.conversation_type === "group"
+  ))) {
+    await selectContact(groupId, "group");
     window.history.replaceState({}, "", "/");
   }
   if (inviteToken) {
@@ -994,6 +1533,14 @@ function renderAdminOverview(data) {
   const invitationsElement = document.querySelector("#admin-invitations");
   membersElement.replaceChildren();
   invitationsElement.replaceChildren();
+  const storage = data.storage || {};
+  document.querySelector("#admin-storage").innerHTML = `
+    <strong>Storage: ${formatBytes(Number(storage.total_bytes || 0))}</strong>
+    <span>${Number(storage.file_count || 0)} files</span>
+    <span>Photos ${formatBytes(Number(storage.image_bytes || 0))}</span>
+    <span>Voice ${formatBytes(Number(storage.audio_bytes || 0))}</span>
+    <span>Documents ${formatBytes(Number(storage.document_bytes || 0))}</span>
+  `;
 
   const passkeysByUser = new Map();
   data.passkeys.forEach((passkey) => {
@@ -1100,6 +1647,10 @@ async function initialize() {
   needsSetup = status.needs_setup;
   currentUser = status.user;
   maxAttachmentBytes = status.max_attachment_bytes || maxAttachmentBytes;
+  maxVoiceSeconds = status.max_voice_seconds || maxVoiceSeconds;
+  imageMaxDimension = status.image_max_dimension || imageMaxDimension;
+  imageCompressionQuality =
+    status.image_compression_quality || imageCompressionQuality;
   maxAvatarBytes = status.max_avatar_bytes || maxAvatarBytes;
   pushPublicKey = status.push_public_key || null;
   if (currentUser) {
@@ -1209,13 +1760,19 @@ document.querySelector("#message-form").addEventListener("submit", async (event)
       await loadContacts();
       return;
     }
-    const sent = await api("/api/messages", {
+    const path = selectedContact.conversation_type === "group"
+      ? `/api/groups/${selectedContact.id}/messages`
+      : "/api/messages";
+    const payload = {
+      body,
+      reply_to_id: replyToMessage?.id || null,
+    };
+    if (selectedContact.conversation_type === "private") {
+      payload.recipient_id = selectedContact.id;
+    }
+    const sent = await api(path, {
       method: "POST",
-      body: JSON.stringify({
-        recipient_id: selectedContact.id,
-        body,
-        reply_to_id: replyToMessage?.id || null,
-      }),
+      body: JSON.stringify(payload),
     });
     appendMessage(sent);
     clearComposerContext();
@@ -1251,12 +1808,25 @@ document.querySelector("#cancel-attachment").addEventListener(
   "click",
   clearAttachment,
 );
+document.querySelector("#voice-button").addEventListener(
+  "click",
+  startVoiceRecording,
+);
+document.querySelector("#stop-voice-recording").addEventListener("click", () => {
+  if (mediaRecorder?.state === "recording") mediaRecorder.stop();
+});
+document.querySelector("#cancel-voice-recording").addEventListener(
+  "click",
+  cancelVoiceRecording,
+);
 
 function sendTyping(isTyping) {
   if (!selectedContact || socket?.readyState !== WebSocket.OPEN) return;
   socket.send(JSON.stringify({
     type: "typing",
-    recipient_id: selectedContact.id,
+    ...(selectedContact.conversation_type === "group"
+      ? { group_id: selectedContact.id }
+      : { recipient_id: selectedContact.id }),
     is_typing: isTyping,
   }));
 }
@@ -1269,11 +1839,296 @@ messageInput.addEventListener("input", () => {
 messageInput.addEventListener("blur", () => sendTyping(false));
 
 document.querySelector("#back-button").addEventListener("click", () => {
+  if (mediaRecorder?.state === "recording") cancelVoiceRecording();
   sendTyping(false);
   chatView.classList.remove("conversation-open");
 });
 
+document.querySelector("#create-group-button").addEventListener("click", () => {
+  const options = document.querySelector("#group-member-options");
+  options.replaceChildren();
+  contacts
+    .filter((contact) => contact.conversation_type === "private")
+    .sort((left, right) => left.display_name.localeCompare(right.display_name))
+    .forEach((contact) => {
+      const label = document.createElement("label");
+      label.className = "group-member-option";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = contact.id;
+      const avatar = document.createElement("span");
+      avatar.className = "avatar";
+      renderAvatar(avatar, contact);
+      const name = document.createElement("span");
+      name.textContent = contact.display_name;
+      label.append(checkbox, avatar, name);
+      options.append(label);
+    });
+  document.querySelector("#group-name").value = "";
+  document.querySelector("#group-error").textContent = "";
+  groupDialog.showModal();
+});
+
+document.querySelector("#cancel-group").addEventListener(
+  "click",
+  () => groupDialog.close(),
+);
+
+document.querySelector("#group-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const error = document.querySelector("#group-error");
+  error.textContent = "";
+  const memberIds = [...document.querySelectorAll(
+    "#group-member-options input:checked",
+  )].map((input) => Number(input.value));
+  if (!memberIds.length) {
+    error.textContent = "Choose at least one family member.";
+    return;
+  }
+  try {
+    const created = await api("/api/groups", {
+      method: "POST",
+      body: JSON.stringify({
+        name: document.querySelector("#group-name").value.trim(),
+        member_ids: memberIds,
+      }),
+    });
+    groupDialog.close();
+    await loadContacts();
+    await selectContact(created.id, "group");
+  } catch (exception) {
+    error.textContent = exception.message;
+  }
+});
+
+function groupMemberOption(member) {
+  const label = document.createElement("label");
+  label.className = "group-member-option";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.value = member.id;
+  const avatar = document.createElement("span");
+  avatar.className = "avatar";
+  renderAvatar(avatar, member);
+  const name = document.createElement("span");
+  name.textContent = member.display_name;
+  label.append(checkbox, avatar, name);
+  return label;
+}
+
+function renderGroupInfo(data) {
+  document.querySelector("#group-info-summary").textContent =
+    `${data.members.length} members`;
+  document.querySelector("#group-rename-name").value = data.name;
+  document.querySelector("#group-rename-form").classList.toggle(
+    "hidden",
+    !data.is_admin,
+  );
+  document.querySelector("#group-add-section").classList.toggle(
+    "hidden",
+    !data.is_admin || !data.available_members.length,
+  );
+
+  const available = document.querySelector("#group-available-members");
+  available.replaceChildren(
+    ...data.available_members.map(groupMemberOption),
+  );
+
+  const members = document.querySelector("#group-info-members");
+  members.replaceChildren();
+  data.members.forEach((member) => {
+    const row = document.createElement("article");
+    row.className = "admin-row";
+    const main = document.createElement("div");
+    main.className = "admin-row-main";
+    const identity = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = member.display_name;
+    const username = document.createElement("small");
+    username.textContent = `@${member.username}`;
+    identity.append(name, username);
+    const badge = document.createElement("span");
+    badge.className = "admin-badge";
+    badge.textContent = member.is_admin ? "Group admin" : "Member";
+    main.append(identity, badge);
+    row.append(main);
+    if (data.is_admin || member.id === currentUser.id) {
+      const actions = document.createElement("div");
+      actions.className = "admin-actions";
+      if (data.is_admin) {
+        actions.append(adminButton(
+          member.is_admin ? "Remove admin" : "Make admin",
+          "group-role",
+          member.id,
+          member.is_admin ? "secondary" : "",
+        ));
+      }
+      if (data.is_admin || member.id === currentUser.id) {
+        actions.append(adminButton(
+          member.id === currentUser.id ? "Leave group" : "Remove",
+          "group-remove",
+          member.id,
+          "danger",
+        ));
+      }
+      row.append(actions);
+    }
+    members.append(row);
+  });
+}
+
+async function loadGroupInfo() {
+  if (selectedContact?.conversation_type !== "group") return;
+  const error = document.querySelector("#group-info-error");
+  error.textContent = "";
+  try {
+    renderGroupInfo(await api(`/api/groups/${selectedContact.id}`));
+  } catch (exception) {
+    error.textContent = exception.message;
+  }
+}
+
+document.querySelector("#group-info-button").addEventListener("click", async () => {
+  await loadGroupInfo();
+  groupInfoDialog.showModal();
+});
+
+document.querySelector("#media-button").addEventListener("click", async () => {
+  mediaFilter = "image";
+  await loadConversationMedia();
+  mediaDialog.showModal();
+});
+
+document.querySelector("#close-media").addEventListener(
+  "click",
+  () => mediaDialog.close(),
+);
+
+document.querySelector("#media-tabs").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-filter]");
+  if (!button) return;
+  mediaFilter = button.dataset.filter;
+  renderConversationMedia();
+});
+
+document.querySelector("#close-image-viewer").addEventListener("click", () => {
+  imageViewerDialog.close();
+});
+
+document.querySelector("#image-viewer-image").addEventListener("click", (event) => {
+  event.currentTarget.classList.toggle("zoomed");
+});
+
+imageViewerDialog.addEventListener("close", () => {
+  const image = document.querySelector("#image-viewer-image");
+  image.classList.remove("zoomed");
+  image.src = "";
+});
+
+document.querySelector("#close-group-info").addEventListener(
+  "click",
+  () => groupInfoDialog.close(),
+);
+
+document.querySelector("#group-rename-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const error = document.querySelector("#group-info-error");
+  error.textContent = "";
+  try {
+    await api(`/api/groups/${selectedContact.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: document.querySelector("#group-rename-name").value.trim(),
+      }),
+    });
+    await loadContacts();
+    document.querySelector("#conversation-name").textContent =
+      selectedContact.display_name;
+    await loadGroupInfo();
+  } catch (exception) {
+    error.textContent = exception.message;
+  }
+});
+
+document.querySelector("#add-selected-group-members").addEventListener(
+  "click",
+  async () => {
+    const error = document.querySelector("#group-info-error");
+    error.textContent = "";
+    const memberIds = [...document.querySelectorAll(
+      "#group-available-members input:checked",
+    )].map((input) => Number(input.value));
+    if (!memberIds.length) {
+      error.textContent = "Choose at least one family member.";
+      return;
+    }
+    try {
+      await api(`/api/groups/${selectedContact.id}/members`, {
+        method: "POST",
+        body: JSON.stringify({ member_ids: memberIds }),
+      });
+      await loadContacts();
+      await loadGroupInfo();
+    } catch (exception) {
+      error.textContent = exception.message;
+    }
+  },
+);
+
+document.querySelector("#group-info-members").addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  const error = document.querySelector("#group-info-error");
+  error.textContent = "";
+  const memberId = Number(button.dataset.id);
+  try {
+    if (button.dataset.action === "group-role") {
+      const makeAdmin = button.textContent === "Make admin";
+      await api(
+        `/api/groups/${selectedContact.id}/members/${memberId}/role`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ is_admin: makeAdmin }),
+        },
+      );
+    } else if (button.dataset.action === "group-remove") {
+      const leaving = memberId === currentUser.id;
+      if (!confirm(leaving ? "Leave this group?" : "Remove this member from the group?")) {
+        return;
+      }
+      await api(`/api/groups/${selectedContact.id}/members/${memberId}`, {
+        method: "DELETE",
+      });
+      if (leaving) {
+        groupInfoDialog.close();
+        await loadContacts();
+        return;
+      }
+    }
+    await loadContacts();
+    await loadGroupInfo();
+  } catch (exception) {
+    error.textContent = exception.message;
+  }
+});
+
+document.querySelector("#search-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const query = document.querySelector("#search-input").value.trim();
+  if (query.length < 2) return;
+  try {
+    renderSearchResults(await api(`/api/search?q=${encodeURIComponent(query)}`));
+  } catch (exception) {
+    renderSearchResults([]);
+    document.querySelector("#search-results").firstElementChild.textContent =
+      exception.message;
+  }
+});
+
+document.querySelector("#clear-search").addEventListener("click", clearSearch);
+
 document.querySelector("#logout-button").addEventListener("click", async () => {
+  if (mediaRecorder?.state === "recording") cancelVoiceRecording();
   try {
     await disablePushNotifications();
   } catch {

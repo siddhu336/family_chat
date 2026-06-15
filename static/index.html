@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-  <link rel="stylesheet" href="/static/style.css?v=15">
+  <link rel="stylesheet" href="/static/style.css?v=19">
 </head>
 <body>
   <main id="offline-view" class="centered hidden">
@@ -66,6 +66,7 @@
         </div>
         <div class="sidebar-actions">
           <button id="install-button" class="icon-button hidden" data-icon="download" title="Install app" aria-label="Install app"></button>
+          <button id="create-group-button" class="icon-button" data-icon="users" title="New group" aria-label="New group"></button>
           <button id="profile-button" class="icon-button" data-icon="user" title="Edit profile" aria-label="Edit profile"></button>
           <button id="add-member-button" class="icon-button hidden" data-icon="settings" title="Manage family" aria-label="Manage family"></button>
           <button id="change-password-button" class="icon-button" data-icon="key" title="Change password" aria-label="Change password"></button>
@@ -76,13 +77,19 @@
         <span>Enable notifications</span>
       </button>
       <p id="notification-status" class="notification-status hidden" role="status"></p>
+      <form id="search-form" class="chat-search">
+        <span data-icon="search"></span>
+        <input id="search-input" type="search" minlength="2" maxlength="100" placeholder="Search messages" autocomplete="off">
+        <button id="clear-search" class="hidden" type="button" data-icon="x" title="Clear search" aria-label="Clear search"></button>
+      </form>
+      <div id="search-results" class="search-results hidden"></div>
       <div id="contacts" class="contacts"></div>
     </aside>
 
     <section id="conversation" class="conversation empty">
       <div id="empty-conversation" class="empty-conversation">
-        <h2>Select a family member</h2>
-        <p>Choose someone from the list to start a private conversation.</p>
+        <h2>Select a conversation</h2>
+        <p>Choose a family member or group to start chatting.</p>
       </div>
       <div id="active-conversation" class="active-conversation hidden">
         <header class="conversation-header">
@@ -95,6 +102,8 @@
           <button id="reset-password-button" class="reset-password-button hidden" data-icon="key-round">
             <span>Reset password</span>
           </button>
+          <button id="media-button" class="icon-button" data-icon="image" title="Media, links and docs" aria-label="Media, links and docs"></button>
+          <button id="group-info-button" class="icon-button hidden" data-icon="info" title="Group info" aria-label="Group info"></button>
         </header>
         <section id="messages" aria-live="polite"></section>
         <div class="composer-shell">
@@ -114,12 +123,20 @@
             </div>
             <button id="cancel-attachment" type="button" data-icon="x" title="Remove attachment" aria-label="Remove attachment"></button>
           </div>
+          <div id="voice-recording" class="voice-recording hidden">
+            <span class="recording-dot"></span>
+            <strong>Recording</strong>
+            <time id="voice-recording-time">0:00</time>
+            <button id="cancel-voice-recording" type="button" data-icon="trash" title="Cancel recording" aria-label="Cancel recording"></button>
+            <button id="stop-voice-recording" type="button" data-icon="square" title="Stop recording" aria-label="Stop recording"></button>
+          </div>
           <form id="message-form" class="composer">
             <button id="camera-button" class="attachment-button" type="button" data-icon="camera" title="Take photo" aria-label="Take photo"></button>
             <input id="camera-input" class="hidden" type="file" accept="image/*" capture="environment">
             <button id="attachment-button" class="attachment-button" type="button" data-icon="paperclip" title="Attach photo or file" aria-label="Attach photo or file"></button>
             <input id="attachment-input" class="hidden" type="file" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.doc,.docx,.xls,.xlsx">
             <input id="message-input" maxlength="4000" placeholder="Type a message" autocomplete="off">
+            <button id="voice-button" class="attachment-button" type="button" data-icon="mic" title="Record voice message" aria-label="Record voice message"></button>
             <button id="send-button" type="submit" data-icon="send" title="Send" aria-label="Send"></button>
           </form>
         </div>
@@ -152,6 +169,78 @@
     </form>
   </dialog>
 
+  <dialog id="group-dialog">
+    <form id="group-form" method="dialog" class="card">
+      <h2>New group</h2>
+      <label>Group name<input id="group-name" required maxlength="80" autocomplete="off"></label>
+      <fieldset class="group-members-fieldset">
+        <legend>Choose family members</legend>
+        <div id="group-member-options" class="group-member-options"></div>
+      </fieldset>
+      <p id="group-error" class="error"></p>
+      <div class="dialog-actions">
+        <button id="cancel-group" type="button" class="secondary">Cancel</button>
+        <button type="submit">Create group</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="group-info-dialog" class="wide-dialog">
+    <section class="card admin-card">
+      <div class="admin-heading">
+        <div>
+          <h2>Group info</h2>
+          <p id="group-info-summary"></p>
+        </div>
+        <button id="close-group-info" class="admin-close" type="button" data-icon="x" title="Close" aria-label="Close"></button>
+      </div>
+      <form id="group-rename-form" class="group-rename-form hidden">
+        <label>Group name<input id="group-rename-name" required maxlength="80"></label>
+        <button type="submit">Rename</button>
+      </form>
+      <div id="group-add-section" class="hidden">
+        <h3>Add members</h3>
+        <div id="group-available-members" class="group-member-options"></div>
+        <button id="add-selected-group-members" type="button">Add selected</button>
+      </div>
+      <p id="group-info-error" class="error"></p>
+      <h3>Members</h3>
+      <div id="group-info-members" class="admin-list"></div>
+    </section>
+  </dialog>
+
+  <dialog id="media-dialog" class="wide-dialog">
+    <section class="card media-gallery-card">
+      <div class="admin-heading">
+        <div>
+          <h2>Conversation media</h2>
+          <p id="media-summary"></p>
+        </div>
+        <button id="close-media" class="admin-close" type="button" data-icon="x" title="Close" aria-label="Close"></button>
+      </div>
+      <div id="media-tabs" class="media-tabs">
+        <button type="button" data-filter="image" class="selected">Photos</button>
+        <button type="button" data-filter="document">Documents</button>
+        <button type="button" data-filter="audio">Voice</button>
+      </div>
+      <p id="media-error" class="error"></p>
+      <div id="media-items" class="media-items"></div>
+    </section>
+  </dialog>
+
+  <dialog id="image-viewer-dialog" class="image-viewer-dialog">
+    <section class="image-viewer">
+      <div class="image-viewer-toolbar">
+        <span id="image-viewer-title"></span>
+        <a id="image-viewer-download" data-icon="download" title="Download image" aria-label="Download image"></a>
+        <button id="close-image-viewer" type="button" data-icon="x" title="Close" aria-label="Close"></button>
+      </div>
+      <div class="image-viewer-stage">
+        <img id="image-viewer-image" alt="">
+      </div>
+    </section>
+  </dialog>
+
   <dialog id="admin-dialog" class="wide-dialog">
     <section class="card admin-card">
       <div class="admin-heading">
@@ -168,6 +257,7 @@
         <button id="refresh-admin" class="secondary" type="button">Refresh</button>
       </div>
       <p id="admin-error" class="error"></p>
+      <div id="admin-storage" class="storage-summary"></div>
       <h3>Members</h3>
       <div id="admin-members" class="admin-list"></div>
       <h3>Invitations</h3>
@@ -217,6 +307,6 @@
     </form>
   </dialog>
 
-  <script src="/static/app.js?v=17"></script>
+  <script src="/static/app.js?v=21"></script>
 </body>
 </html>

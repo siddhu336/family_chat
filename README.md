@@ -151,6 +151,52 @@ recipient. The default maximum attachment size is 10 MB.
 The web app is installable as a PWA. HTTPS plus the VAPID settings enable
 notifications when the installed app is closed on supported browsers.
 
+## Group conversations
+
+Any family member can use **New group** in the sidebar, enter a group name,
+and choose members. Groups have independent unread counts, typing indicators,
+quoted replies, edits, deleted-message placeholders, and protected
+attachments. Only group members can load its history or files.
+
+Group tables and the optional `messages.group_id` column are created
+automatically when the app starts. After pulling this update on Ubuntu, run
+`docker compose up -d --build`; no manual SQL migration is required.
+
+Group administrators can open **Group info** to rename a group, add or remove
+members, and promote or demote group administrators. Every group must retain
+at least one administrator. Any member may leave after another administrator
+has been promoted when necessary.
+
+Use **Search messages** in the sidebar to search message text and attachment
+names across private conversations and groups you belong to. Selecting a result
+opens the correct conversation and highlights the matching message.
+
+## Voice messages
+
+On supported mobile and desktop browsers, select the microphone in the
+composer, record up to five minutes, stop, preview the recording, and send it.
+Voice messages work in private and group conversations and use the same
+member-only attachment authorization as photos and documents.
+
+The recording limit can be changed with `MAX_VOICE_SECONDS`. Microphone access
+requires HTTPS in production; localhost is permitted during development.
+
+## Photo optimization and media gallery
+
+Large JPG, PNG, and WebP photos are resized in the browser before upload.
+Animated GIF files are preserved without conversion. Configure the longest
+image edge and WebP quality with:
+
+```dotenv
+IMAGE_MAX_DIMENSION=1920
+IMAGE_COMPRESSION_QUALITY=0.82
+```
+
+Open the media button in any conversation to browse photos, documents, and
+voice messages. Photos open in a full-screen zoomable viewer. Gallery items can
+be downloaded or used to jump to the original message. Administrators can see
+total storage usage and category totals in **Manage family**.
+
 ## Passkeys
 
 Passkeys let family members sign in with their phone fingerprint, face unlock,

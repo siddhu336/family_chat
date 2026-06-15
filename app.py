@@ -62,6 +62,11 @@ ALLOWED_ATTACHMENT_TYPES = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
         ".xlsx"
     },
+    "audio/webm": {".webm"},
+    "audio/ogg": {".ogg"},
+    "audio/mp4": {".m4a", ".mp4"},
+    "audio/mpeg": {".mp3"},
+    "audio/wav": {".wav"},
 }
 ALLOWED_AVATAR_TYPES = {
     "image/jpeg": {".jpg", ".jpeg"},
@@ -138,8 +143,44 @@ def initialize_database() -> None:
                 attachment_name TEXT,
                 attachment_storage_name TEXT,
                 attachment_content_type TEXT,
-                attachment_size BIGINT
+                attachment_size BIGINT,
+                attachment_duration_seconds INTEGER
             );
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_groups (
+                id BIGSERIAL PRIMARY KEY,
+                name VARCHAR(80) NOT NULL,
+                created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+                created_at BIGINT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            "ALTER TABLE chat_groups ALTER COLUMN created_by DROP NOT NULL"
+        )
+        connection.execute(
+            "ALTER TABLE chat_groups DROP CONSTRAINT IF EXISTS chat_groups_created_by_fkey"
+        )
+        connection.execute(
+            """
+            ALTER TABLE chat_groups
+            ADD CONSTRAINT chat_groups_created_by_fkey
+            FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS group_members (
+                group_id BIGINT NOT NULL REFERENCES chat_groups(id) ON DELETE CASCADE,
+                user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+                joined_at BIGINT NOT NULL,
+                last_read_message_id BIGINT,
+                PRIMARY KEY (group_id, user_id)
+            )
             """
         )
         connection.execute(
@@ -234,9 +275,22 @@ def initialize_database() -> None:
             "ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_size BIGINT"
         )
         connection.execute(
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment_duration_seconds INTEGER"
+        )
+        connection.execute(
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS group_id BIGINT "
+            "REFERENCES chat_groups(id) ON DELETE CASCADE"
+        )
+        connection.execute(
             """
             CREATE INDEX IF NOT EXISTS messages_direct_lookup_idx
             ON messages (user_id, recipient_id, id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS messages_group_lookup_idx
+            ON messages (group_id, id) WHERE group_id IS NOT NULL
             """
         )
 
@@ -352,6 +406,47 @@ def user_from_request(request: Request) -> dict:
     return user
 
 
+def group_member_ids(connection: psycopg.Connection, group_id: int) -> set[int]:
+    return {
+        row["user_id"]
+        for row in connection.execute(
+            """
+            SELECT group_members.user_id
+            FROM group_members
+            JOIN users ON users.id = group_members.user_id
+            WHERE group_members.group_id = %s AND users.disabled_at IS NULL
+            """,
+            (group_id,),
+        ).fetchall()
+    }
+
+
+def require_group_member(
+    connection: psycopg.Connection, group_id: int, user_id: int
+) -> set[int]:
+    member_ids = group_member_ids(connection, group_id)
+    if user_id not in member_ids:
+        raise HTTPException(404, "Group not found")
+    return member_ids
+
+
+def require_group_admin(
+    connection: psycopg.Connection, group_id: int, user_id: int
+) -> set[int]:
+    member_ids = require_group_member(connection, group_id, user_id)
+    row = connection.execute(
+        """
+        SELECT is_admin
+        FROM group_members
+        WHERE group_id = %s AND user_id = %s
+        """,
+        (group_id, user_id),
+    ).fetchone()
+    if not row or not row["is_admin"]:
+        raise HTTPException(403, "Group administrator access required")
+    return member_ids
+
+
 def create_webauthn_challenge(
     challenge: bytes,
     purpose: str,
@@ -420,6 +515,7 @@ def public_message(row: dict) -> dict:
         "id": row["id"],
         "user_id": row["user_id"],
         "recipient_id": row["recipient_id"],
+        "group_id": row.get("group_id"),
         "display_name": row["display_name"],
         "body": row["body"],
         "created_at": row["created_at"],
@@ -435,6 +531,7 @@ def public_message(row: dict) -> dict:
         "attachment_name": row["attachment_name"],
         "attachment_content_type": row["attachment_content_type"],
         "attachment_size": row["attachment_size"],
+        "attachment_duration_seconds": row.get("attachment_duration_seconds"),
         "attachment_url": (
             f"/api/messages/{row['id']}/attachment"
             if row["attachment_storage_name"] and not row["deleted_at"]
@@ -453,6 +550,28 @@ class MessageInput(BaseModel):
     recipient_id: int = Field(gt=0)
     body: str = Field(min_length=1, max_length=4000)
     reply_to_id: int | None = Field(default=None, gt=0)
+
+
+class GroupCreateInput(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    member_ids: list[int] = Field(min_length=1, max_length=100)
+
+
+class GroupMessageInput(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+    reply_to_id: int | None = Field(default=None, gt=0)
+
+
+class GroupNameInput(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class GroupMembersInput(BaseModel):
+    member_ids: list[int] = Field(min_length=1, max_length=100)
+
+
+class GroupRoleInput(BaseModel):
+    is_admin: bool
 
 
 class PushKeys(BaseModel):
@@ -661,6 +780,7 @@ async def send_push(recipient_id: int, sender: dict, message: dict) -> None:
             "body": message["body"] or f"Attachment: {message['attachment_name']}",
             "tag": f"family-message-{message['id']}",
             "contactId": sender["id"],
+            "groupId": message.get("group_id"),
         },
     )
 
@@ -722,6 +842,9 @@ def status(request: Request) -> dict:
         "needs_setup": needs_setup,
         "user": user,
         "max_attachment_bytes": settings.max_attachment_bytes,
+        "max_voice_seconds": settings.max_voice_seconds,
+        "image_max_dimension": settings.image_max_dimension,
+        "image_compression_quality": settings.image_compression_quality,
         "max_avatar_bytes": settings.max_avatar_bytes,
         "push_public_key": settings.vapid_public_key,
     }
@@ -942,6 +1065,28 @@ def admin_overview(request: Request) -> dict:
             ORDER BY invitations.id DESC
             """
         ).fetchall()
+        storage = connection.execute(
+            """
+            SELECT
+                COALESCE(SUM(attachment_size), 0)::BIGINT AS total_bytes,
+                COALESCE(SUM(attachment_size) FILTER (
+                    WHERE attachment_content_type LIKE 'image/%'
+                ), 0)::BIGINT AS image_bytes,
+                COALESCE(SUM(attachment_size) FILTER (
+                    WHERE attachment_content_type LIKE 'audio/%'
+                ), 0)::BIGINT AS audio_bytes,
+                COALESCE(SUM(attachment_size) FILTER (
+                    WHERE attachment_content_type IS NOT NULL
+                      AND attachment_content_type NOT LIKE 'image/%'
+                      AND attachment_content_type NOT LIKE 'audio/%'
+                ), 0)::BIGINT AS document_bytes,
+                COUNT(*) FILTER (
+                    WHERE attachment_storage_name IS NOT NULL
+                ) AS file_count
+            FROM messages
+            WHERE deleted_at IS NULL
+            """
+        ).fetchone()
     invitation_results = []
     for row in invitations:
         item = dict(row)
@@ -957,6 +1102,7 @@ def admin_overview(request: Request) -> dict:
         "members": [dict(row) for row in members],
         "passkeys": [dict(row) for row in passkeys],
         "invitations": invitation_results,
+        "storage": dict(storage),
     }
 
 
@@ -1622,6 +1768,474 @@ def create_user(credentials: Credentials, request: Request) -> dict:
     return {"ok": True}
 
 
+@app.get("/api/groups")
+def groups(request: Request) -> list[dict]:
+    user = user_from_request(request)
+    with db() as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                chat_groups.id,
+                chat_groups.name AS display_name,
+                chat_groups.created_by,
+                chat_groups.created_at,
+                group_members.is_admin,
+                (
+                    SELECT COUNT(*)
+                    FROM group_members all_members
+                    JOIN users member_user ON member_user.id = all_members.user_id
+                    WHERE all_members.group_id = chat_groups.id
+                      AND member_user.disabled_at IS NULL
+                ) AS member_count,
+                (
+                    SELECT STRING_AGG(member_user.display_name, ', ' ORDER BY LOWER(member_user.display_name))
+                    FROM group_members all_members
+                    JOIN users member_user ON member_user.id = all_members.user_id
+                    WHERE all_members.group_id = chat_groups.id
+                      AND member_user.disabled_at IS NULL
+                ) AS member_names,
+                (
+                    SELECT COUNT(*)
+                    FROM messages unread
+                    WHERE unread.group_id = chat_groups.id
+                      AND unread.user_id <> %s
+                      AND unread.id > COALESCE(group_members.last_read_message_id, 0)
+                ) AS unread_count,
+                latest.body AS last_message_body,
+                latest.attachment_name AS last_message_attachment_name,
+                latest.deleted_at AS last_message_deleted_at,
+                latest.user_id AS last_message_user_id,
+                latest.display_name AS last_message_display_name,
+                latest.created_at AS last_message_at
+            FROM group_members
+            JOIN chat_groups ON chat_groups.id = group_members.group_id
+            LEFT JOIN LATERAL (
+                SELECT
+                    messages.body,
+                    messages.attachment_name,
+                    messages.deleted_at,
+                    messages.user_id,
+                    users.display_name,
+                    messages.created_at
+                FROM messages
+                JOIN users ON users.id = messages.user_id
+                WHERE messages.group_id = chat_groups.id
+                ORDER BY messages.id DESC
+                LIMIT 1
+            ) latest ON TRUE
+            WHERE group_members.user_id = %s
+            ORDER BY latest.created_at DESC NULLS LAST, LOWER(chat_groups.name)
+            """,
+            (user["id"], user["id"]),
+        ).fetchall()
+    return [
+        {
+            **dict(row),
+            "conversation_type": "group",
+            "avatar_url": None,
+            "is_online": False,
+        }
+        for row in rows
+    ]
+
+
+@app.post("/api/groups")
+async def create_group(group: GroupCreateInput, request: Request) -> dict:
+    user = user_from_request(request)
+    name = group.name.strip()
+    if not name:
+        raise HTTPException(422, "Group name cannot be empty")
+    requested_ids = set(group.member_ids)
+    requested_ids.discard(user["id"])
+    if not requested_ids:
+        raise HTTPException(422, "Choose at least one family member")
+    now = int(time.time())
+    with db() as connection:
+        rows = connection.execute(
+            """
+            SELECT id
+            FROM users
+            WHERE id = ANY(%s) AND disabled_at IS NULL
+            """,
+            (list(requested_ids),),
+        ).fetchall()
+        valid_ids = {row["id"] for row in rows}
+        if valid_ids != requested_ids:
+            raise HTTPException(400, "One or more family members are unavailable")
+        created = connection.execute(
+            """
+            INSERT INTO chat_groups (name, created_by, created_at)
+            VALUES (%s, %s, %s)
+            RETURNING id
+            """,
+            (name, user["id"], now),
+        ).fetchone()
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                """
+                INSERT INTO group_members (group_id, user_id, is_admin, joined_at)
+                VALUES (%s, %s, %s, %s)
+                """,
+                [
+                    (created["id"], member_id, member_id == user["id"], now)
+                    for member_id in {user["id"], *valid_ids}
+                ],
+            )
+    member_ids = {user["id"], *valid_ids}
+    await manager.send_to_users(
+        member_ids,
+        {"type": "groups_changed", "group_id": created["id"]},
+    )
+    return {"id": created["id"], "name": name}
+
+
+@app.get("/api/groups/{group_id}")
+def group_details(group_id: int, request: Request) -> dict:
+    user = user_from_request(request)
+    with db() as connection:
+        require_group_member(connection, group_id, user["id"])
+        group = connection.execute(
+            """
+            SELECT chat_groups.id, chat_groups.name, chat_groups.created_at,
+                   chat_groups.created_by, group_members.is_admin
+            FROM chat_groups
+            JOIN group_members ON group_members.group_id = chat_groups.id
+            WHERE chat_groups.id = %s AND group_members.user_id = %s
+            """,
+            (group_id, user["id"]),
+        ).fetchone()
+        members = connection.execute(
+            """
+            SELECT users.id, users.username, users.display_name,
+                   users.avatar_storage_name, users.profile_updated_at,
+                   group_members.is_admin, group_members.joined_at
+            FROM group_members
+            JOIN users ON users.id = group_members.user_id
+            WHERE group_members.group_id = %s AND users.disabled_at IS NULL
+            ORDER BY group_members.is_admin DESC, LOWER(users.display_name)
+            """,
+            (group_id,),
+        ).fetchall()
+        available = connection.execute(
+            """
+            SELECT id, username, display_name, avatar_storage_name,
+                   profile_updated_at
+            FROM users
+            WHERE disabled_at IS NULL
+              AND id NOT IN (
+                SELECT user_id FROM group_members WHERE group_id = %s
+              )
+            ORDER BY LOWER(display_name)
+            """,
+            (group_id,),
+        ).fetchall()
+    if not group:
+        raise HTTPException(404, "Group not found")
+    return {
+        **dict(group),
+        "members": [public_user(dict(member)) for member in members],
+        "available_members": [
+            public_user(dict(member)) for member in available
+        ],
+    }
+
+
+@app.patch("/api/groups/{group_id}")
+async def rename_group(
+    group_id: int, group: GroupNameInput, request: Request
+) -> dict:
+    user = user_from_request(request)
+    name = group.name.strip()
+    if not name:
+        raise HTTPException(422, "Group name cannot be empty")
+    with db() as connection:
+        member_ids = require_group_admin(connection, group_id, user["id"])
+        connection.execute(
+            "UPDATE chat_groups SET name = %s WHERE id = %s",
+            (name, group_id),
+        )
+    await manager.send_to_users(
+        member_ids, {"type": "groups_changed", "group_id": group_id}
+    )
+    return {"id": group_id, "name": name}
+
+
+@app.post("/api/groups/{group_id}/members")
+async def add_group_members(
+    group_id: int, members: GroupMembersInput, request: Request
+) -> dict:
+    user = user_from_request(request)
+    requested_ids = set(members.member_ids)
+    now = int(time.time())
+    with db() as connection:
+        existing_ids = require_group_admin(connection, group_id, user["id"])
+        requested_ids -= existing_ids
+        if not requested_ids:
+            raise HTTPException(400, "Choose family members not already in the group")
+        rows = connection.execute(
+            """
+            SELECT id FROM users
+            WHERE id = ANY(%s) AND disabled_at IS NULL
+            """,
+            (list(requested_ids),),
+        ).fetchall()
+        valid_ids = {row["id"] for row in rows}
+        if valid_ids != requested_ids:
+            raise HTTPException(400, "One or more family members are unavailable")
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                """
+                INSERT INTO group_members (group_id, user_id, is_admin, joined_at)
+                VALUES (%s, %s, FALSE, %s)
+                """,
+                [(group_id, member_id, now) for member_id in valid_ids],
+            )
+    all_ids = existing_ids | valid_ids
+    await manager.send_to_users(
+        all_ids, {"type": "groups_changed", "group_id": group_id}
+    )
+    return {"added": len(valid_ids)}
+
+
+@app.patch("/api/groups/{group_id}/members/{member_id}/role")
+async def update_group_member_role(
+    group_id: int,
+    member_id: int,
+    role: GroupRoleInput,
+    request: Request,
+) -> dict:
+    user = user_from_request(request)
+    with db() as connection:
+        member_ids = require_group_admin(connection, group_id, user["id"])
+        target = connection.execute(
+            """
+            SELECT is_admin FROM group_members
+            WHERE group_id = %s AND user_id = %s
+            """,
+            (group_id, member_id),
+        ).fetchone()
+        if not target:
+            raise HTTPException(404, "Group member not found")
+        if target["is_admin"] and not role.is_admin:
+            admin_count = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM group_members
+                WHERE group_id = %s AND is_admin = TRUE
+                """,
+                (group_id,),
+            ).fetchone()["count"]
+            if admin_count <= 1:
+                raise HTTPException(400, "A group must have at least one administrator")
+        connection.execute(
+            """
+            UPDATE group_members SET is_admin = %s
+            WHERE group_id = %s AND user_id = %s
+            """,
+            (role.is_admin, group_id, member_id),
+        )
+    await manager.send_to_users(
+        member_ids,
+        {"type": "groups_changed", "group_id": group_id},
+    )
+    return {"ok": True}
+
+
+@app.delete("/api/groups/{group_id}/members/{member_id}")
+async def remove_group_member(
+    group_id: int, member_id: int, request: Request
+) -> dict:
+    user = user_from_request(request)
+    with db() as connection:
+        member_ids = require_group_member(connection, group_id, user["id"])
+        if member_id != user["id"]:
+            require_group_admin(connection, group_id, user["id"])
+        target = connection.execute(
+            """
+            SELECT is_admin FROM group_members
+            WHERE group_id = %s AND user_id = %s
+            """,
+            (group_id, member_id),
+        ).fetchone()
+        if not target:
+            raise HTTPException(404, "Group member not found")
+        if target["is_admin"]:
+            admin_count = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM group_members
+                WHERE group_id = %s AND is_admin = TRUE
+                """,
+                (group_id,),
+            ).fetchone()["count"]
+            if admin_count <= 1:
+                raise HTTPException(
+                    400, "Promote another administrator before removing this member"
+                )
+        connection.execute(
+            "DELETE FROM group_members WHERE group_id = %s AND user_id = %s",
+            (group_id, member_id),
+        )
+    await manager.send_to_users(
+        member_ids,
+        {"type": "groups_changed", "group_id": group_id},
+    )
+    return {"ok": True}
+
+
+@app.get("/api/groups/{group_id}/messages")
+def group_messages(
+    group_id: int, request: Request, target: int | None = None
+) -> list[dict]:
+    user = user_from_request(request)
+    with db() as connection:
+        require_group_member(connection, group_id, user["id"])
+        rows = connection.execute(
+            """
+            SELECT
+                messages.id,
+                messages.user_id,
+                messages.recipient_id,
+                messages.group_id,
+                users.display_name,
+                messages.body,
+                messages.created_at,
+                messages.delivered_at,
+                messages.read_at,
+                messages.reply_to_id,
+                replied.body AS reply_body,
+                replied.attachment_name AS reply_attachment_name,
+                replied_user.display_name AS reply_display_name,
+                replied.deleted_at AS reply_deleted_at,
+                messages.edited_at,
+                messages.deleted_at,
+                messages.attachment_name,
+                messages.attachment_storage_name,
+                messages.attachment_content_type,
+                messages.attachment_size,
+                messages.attachment_duration_seconds
+            FROM messages
+            JOIN users ON users.id = messages.user_id
+            LEFT JOIN messages replied ON replied.id = messages.reply_to_id
+            LEFT JOIN users replied_user ON replied_user.id = replied.user_id
+            WHERE messages.group_id = %s
+              AND (
+                %s::BIGINT IS NULL
+                OR messages.id BETWEEN GREATEST(%s::BIGINT - 50, 0) AND %s::BIGINT + 50
+              )
+            ORDER BY messages.id DESC
+            LIMIT 100
+            """,
+            (group_id, target, target, target),
+        ).fetchall()
+    return [public_message(row) for row in reversed(rows)]
+
+
+@app.post("/api/groups/{group_id}/read")
+async def mark_group_read(group_id: int, request: Request) -> dict:
+    user = user_from_request(request)
+    with db() as connection:
+        member_ids = require_group_member(connection, group_id, user["id"])
+        latest = connection.execute(
+            "SELECT MAX(id) AS id FROM messages WHERE group_id = %s",
+            (group_id,),
+        ).fetchone()
+        latest_id = latest["id"]
+        if latest_id is not None:
+            connection.execute(
+                """
+                UPDATE group_members
+                SET last_read_message_id = GREATEST(
+                    COALESCE(last_read_message_id, 0), %s
+                )
+                WHERE group_id = %s AND user_id = %s
+                """,
+                (latest_id, group_id, user["id"]),
+            )
+    if latest_id is not None:
+        await manager.send_to_users(
+            member_ids - {user["id"]},
+            {
+                "type": "group_read",
+                "group_id": group_id,
+                "reader_id": user["id"],
+                "message_id": latest_id,
+            },
+        )
+    return {"updated_through": latest_id}
+
+
+@app.post("/api/groups/{group_id}/messages")
+async def send_group_message(
+    group_id: int, message: GroupMessageInput, request: Request
+) -> dict:
+    user = user_from_request(request)
+    body = message.body.strip()
+    if not body:
+        raise HTTPException(422, "Message cannot be empty")
+    created_at = int(time.time())
+    with db() as connection:
+        member_ids = require_group_member(connection, group_id, user["id"])
+        reply = None
+        if message.reply_to_id is not None:
+            reply = connection.execute(
+                """
+                SELECT messages.body, messages.attachment_name,
+                       messages.deleted_at, users.display_name
+                FROM messages
+                JOIN users ON users.id = messages.user_id
+                WHERE messages.id = %s AND messages.group_id = %s
+                """,
+                (message.reply_to_id, group_id),
+            ).fetchone()
+            if not reply:
+                raise HTTPException(400, "Reply message is not in this group")
+        row = connection.execute(
+            """
+            INSERT INTO messages (user_id, group_id, body, created_at, reply_to_id)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (user["id"], group_id, body, created_at, message.reply_to_id),
+        ).fetchone()
+        connection.execute(
+            """
+            UPDATE group_members SET last_read_message_id = %s
+            WHERE group_id = %s AND user_id = %s
+            """,
+            (row["id"], group_id, user["id"]),
+        )
+    result = {
+        "id": row["id"],
+        "user_id": user["id"],
+        "recipient_id": None,
+        "group_id": group_id,
+        "display_name": user["display_name"],
+        "body": body,
+        "created_at": created_at,
+        "delivered_at": None,
+        "read_at": None,
+        "reply_to_id": message.reply_to_id,
+        "reply_body": reply["body"] if reply else None,
+        "reply_attachment_name": reply["attachment_name"] if reply else None,
+        "reply_display_name": reply["display_name"] if reply else None,
+        "reply_deleted_at": reply["deleted_at"] if reply else None,
+        "edited_at": None,
+        "deleted_at": None,
+        "attachment_name": None,
+        "attachment_content_type": None,
+        "attachment_size": None,
+        "attachment_duration_seconds": None,
+        "attachment_url": None,
+    }
+    await manager.send_to_users(
+        member_ids, {"type": "message", "message": result}
+    )
+    for member_id in member_ids - {user["id"]}:
+        await send_push(member_id, user, result)
+    return result
+
+
 @app.get("/api/contacts")
 def contacts(request: Request) -> list[dict]:
     user = user_from_request(request)
@@ -1680,12 +2294,172 @@ def contacts(request: Request) -> list[dict]:
         contact.pop("avatar_storage_name", None)
         contact.pop("profile_updated_at", None)
         contact["is_online"] = manager.is_online(row["id"])
+        contact["conversation_type"] = "private"
         result.append(contact)
     return result
 
 
+@app.get("/api/search")
+def search_messages(q: str, request: Request) -> list[dict]:
+    user = user_from_request(request)
+    query = q.strip()
+    if len(query) < 2:
+        raise HTTPException(422, "Enter at least two characters")
+    pattern = f"%{query}%"
+    with db() as connection:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM (
+                SELECT
+                    messages.id AS message_id,
+                    messages.created_at,
+                    messages.body,
+                    messages.attachment_name,
+                    sender.display_name AS sender_name,
+                    'private'::TEXT AS conversation_type,
+                    other_user.id AS conversation_id,
+                    other_user.display_name AS conversation_name
+                FROM messages
+                JOIN users sender ON sender.id = messages.user_id
+                JOIN users other_user ON other_user.id = CASE
+                    WHEN messages.user_id = %s THEN messages.recipient_id
+                    ELSE messages.user_id
+                END
+                WHERE messages.group_id IS NULL
+                  AND messages.deleted_at IS NULL
+                  AND (messages.user_id = %s OR messages.recipient_id = %s)
+                  AND (
+                    messages.body ILIKE %s
+                    OR messages.attachment_name ILIKE %s
+                  )
+
+                UNION ALL
+
+                SELECT
+                    messages.id AS message_id,
+                    messages.created_at,
+                    messages.body,
+                    messages.attachment_name,
+                    sender.display_name AS sender_name,
+                    'group'::TEXT AS conversation_type,
+                    chat_groups.id AS conversation_id,
+                    chat_groups.name AS conversation_name
+                FROM messages
+                JOIN users sender ON sender.id = messages.user_id
+                JOIN chat_groups ON chat_groups.id = messages.group_id
+                JOIN group_members ON group_members.group_id = chat_groups.id
+                    AND group_members.user_id = %s
+                WHERE messages.deleted_at IS NULL
+                  AND (
+                    messages.body ILIKE %s
+                    OR messages.attachment_name ILIKE %s
+                  )
+            ) results
+            ORDER BY created_at DESC, message_id DESC
+            LIMIT 50
+            """,
+            (
+                user["id"],
+                user["id"],
+                user["id"],
+                pattern,
+                pattern,
+                user["id"],
+                pattern,
+                pattern,
+            ),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.get("/api/media")
+def conversation_media(
+    conversation_type: str,
+    conversation_id: int,
+    request: Request,
+) -> list[dict]:
+    user = user_from_request(request)
+    if conversation_type not in {"private", "group"}:
+        raise HTTPException(422, "Invalid conversation type")
+    with db() as connection:
+        if conversation_type == "group":
+            require_group_member(connection, conversation_id, user["id"])
+            rows = connection.execute(
+                """
+                SELECT
+                    messages.id AS message_id,
+                    messages.user_id,
+                    users.display_name AS sender_name,
+                    messages.created_at,
+                    messages.body,
+                    messages.attachment_name,
+                    messages.attachment_content_type,
+                    messages.attachment_size,
+                    messages.attachment_duration_seconds
+                FROM messages
+                JOIN users ON users.id = messages.user_id
+                WHERE messages.group_id = %s
+                  AND messages.deleted_at IS NULL
+                  AND messages.attachment_storage_name IS NOT NULL
+                ORDER BY messages.id DESC
+                LIMIT 500
+                """,
+                (conversation_id,),
+            ).fetchall()
+        else:
+            if conversation_id == user["id"]:
+                raise HTTPException(400, "Choose another family member")
+            contact = connection.execute(
+                "SELECT id FROM users WHERE id = %s AND disabled_at IS NULL",
+                (conversation_id,),
+            ).fetchone()
+            if not contact:
+                raise HTTPException(404, "Family member not found")
+            rows = connection.execute(
+                """
+                SELECT
+                    messages.id AS message_id,
+                    messages.user_id,
+                    users.display_name AS sender_name,
+                    messages.created_at,
+                    messages.body,
+                    messages.attachment_name,
+                    messages.attachment_content_type,
+                    messages.attachment_size,
+                    messages.attachment_duration_seconds
+                FROM messages
+                JOIN users ON users.id = messages.user_id
+                WHERE messages.group_id IS NULL
+                  AND (
+                    (messages.user_id = %s AND messages.recipient_id = %s)
+                    OR (messages.user_id = %s AND messages.recipient_id = %s)
+                  )
+                  AND messages.deleted_at IS NULL
+                  AND messages.attachment_storage_name IS NOT NULL
+                ORDER BY messages.id DESC
+                LIMIT 500
+                """,
+                (
+                    user["id"],
+                    conversation_id,
+                    conversation_id,
+                    user["id"],
+                ),
+            ).fetchall()
+    return [
+        {
+            **dict(row),
+            "attachment_url": f"/api/messages/{row['message_id']}/attachment",
+        }
+        for row in rows
+    ]
+
+
 @app.get("/api/messages/{contact_id}")
-def messages(contact_id: int, request: Request) -> list[dict]:
+def messages(
+    contact_id: int, request: Request, target: int | None = None
+) -> list[dict]:
     user = user_from_request(request)
     if contact_id == user["id"]:
         raise HTTPException(400, "Choose another family member")
@@ -1717,18 +2491,33 @@ def messages(contact_id: int, request: Request) -> list[dict]:
                 messages.attachment_name,
                 messages.attachment_storage_name,
                 messages.attachment_content_type,
-                messages.attachment_size
+                messages.attachment_size,
+                messages.attachment_duration_seconds
             FROM messages
             JOIN users ON users.id = messages.user_id
             LEFT JOIN messages replied ON replied.id = messages.reply_to_id
             LEFT JOIN users replied_user ON replied_user.id = replied.user_id
             WHERE
-                (messages.user_id = %s AND messages.recipient_id = %s)
-                OR (messages.user_id = %s AND messages.recipient_id = %s)
+                (
+                    (messages.user_id = %s AND messages.recipient_id = %s)
+                    OR (messages.user_id = %s AND messages.recipient_id = %s)
+                )
+                AND (
+                    %s::BIGINT IS NULL
+                    OR messages.id BETWEEN GREATEST(%s::BIGINT - 50, 0) AND %s::BIGINT + 50
+                )
             ORDER BY messages.id DESC
             LIMIT 100
             """,
-            (user["id"], contact_id, contact_id, user["id"]),
+            (
+                user["id"],
+                contact_id,
+                contact_id,
+                user["id"],
+                target,
+                target,
+                target,
+            ),
         ).fetchall()
     return [public_message(row) for row in reversed(rows)]
 
@@ -1825,6 +2614,7 @@ async def send_message(message: MessageInput, request: Request) -> dict:
         "id": row["id"],
         "user_id": user["id"],
         "recipient_id": message.recipient_id,
+        "group_id": None,
         "display_name": user["display_name"],
         "body": body,
         "created_at": created_at,
@@ -1840,6 +2630,7 @@ async def send_message(message: MessageInput, request: Request) -> dict:
         "attachment_name": None,
         "attachment_content_type": None,
         "attachment_size": None,
+        "attachment_duration_seconds": None,
         "attachment_url": None,
     }
     await manager.send_to_users(
@@ -1856,6 +2647,7 @@ async def send_attachment(
     recipient_id: int = Form(..., gt=0),
     body: str = Form(default="", max_length=4000),
     reply_to_id: int | None = Form(default=None, gt=0),
+    attachment_duration_seconds: int | None = Form(default=None, ge=1),
     attachment: UploadFile = File(...),
 ) -> dict:
     user = user_from_request(request)
@@ -1871,6 +2663,20 @@ async def send_attachment(
         or extension not in ALLOWED_ATTACHMENT_TYPES[content_type]
     ):
         raise HTTPException(400, "This file type is not allowed")
+    is_audio = content_type.startswith("audio/")
+    if is_audio and attachment_duration_seconds is None:
+        raise HTTPException(400, "Voice message duration is required")
+    if (
+        attachment_duration_seconds is not None
+        and (
+            not is_audio
+            or attachment_duration_seconds > settings.max_voice_seconds
+        )
+    ):
+        raise HTTPException(
+            400,
+            f"Voice messages can be at most {settings.max_voice_seconds} seconds",
+        )
 
     storage_name = f"{uuid.uuid4().hex}{extension}"
     storage_path = settings.upload_dir / storage_name
@@ -1937,9 +2743,10 @@ async def send_attachment(
                     attachment_name,
                     attachment_storage_name,
                     attachment_content_type,
-                    attachment_size
+                    attachment_size,
+                    attachment_duration_seconds
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id, delivered_at
                 """,
                 (
@@ -1953,6 +2760,7 @@ async def send_attachment(
                     storage_name,
                     content_type,
                     size,
+                    attachment_duration_seconds,
                 ),
             ).fetchone()
     except Exception:
@@ -1963,6 +2771,7 @@ async def send_attachment(
         "id": row["id"],
         "user_id": user["id"],
         "recipient_id": recipient_id,
+        "group_id": None,
         "display_name": user["display_name"],
         "body": clean_body,
         "created_at": created_at,
@@ -1978,6 +2787,7 @@ async def send_attachment(
         "attachment_name": original_name[:255],
         "attachment_content_type": content_type,
         "attachment_size": size,
+        "attachment_duration_seconds": attachment_duration_seconds,
         "attachment_url": f"/api/messages/{row['id']}/attachment",
     }
     await manager.send_to_users(
@@ -1985,6 +2795,144 @@ async def send_attachment(
         {"type": "message", "message": result},
     )
     await send_push(recipient_id, user, result)
+    return result
+
+
+@app.post("/api/groups/{group_id}/attachment")
+async def send_group_attachment(
+    group_id: int,
+    request: Request,
+    body: str = Form(default="", max_length=4000),
+    reply_to_id: int | None = Form(default=None, gt=0),
+    attachment_duration_seconds: int | None = Form(default=None, ge=1),
+    attachment: UploadFile = File(...),
+) -> dict:
+    user = user_from_request(request)
+    original_name = Path(attachment.filename or "").name.strip()
+    content_type = (attachment.content_type or "").lower()
+    extension = Path(original_name).suffix.lower()
+    if (
+        not original_name
+        or content_type not in ALLOWED_ATTACHMENT_TYPES
+        or extension not in ALLOWED_ATTACHMENT_TYPES[content_type]
+    ):
+        raise HTTPException(400, "This file type is not allowed")
+    is_audio = content_type.startswith("audio/")
+    if is_audio and attachment_duration_seconds is None:
+        raise HTTPException(400, "Voice message duration is required")
+    if (
+        attachment_duration_seconds is not None
+        and (
+            not is_audio
+            or attachment_duration_seconds > settings.max_voice_seconds
+        )
+    ):
+        raise HTTPException(
+            400,
+            f"Voice messages can be at most {settings.max_voice_seconds} seconds",
+        )
+
+    storage_name = f"{uuid.uuid4().hex}{extension}"
+    storage_path = settings.upload_dir / storage_name
+    size = 0
+    try:
+        with storage_path.open("wb") as output:
+            while chunk := await attachment.read(1024 * 1024):
+                size += len(chunk)
+                if size > settings.max_attachment_bytes:
+                    raise HTTPException(
+                        413,
+                        f"File is larger than {settings.max_attachment_bytes // (1024 * 1024)} MB",
+                    )
+                output.write(chunk)
+    except Exception:
+        storage_path.unlink(missing_ok=True)
+        raise
+    finally:
+        await attachment.close()
+
+    clean_body = body.strip()
+    created_at = int(time.time())
+    try:
+        with db() as connection:
+            member_ids = require_group_member(connection, group_id, user["id"])
+            reply = None
+            if reply_to_id is not None:
+                reply = connection.execute(
+                    """
+                    SELECT messages.body, messages.attachment_name,
+                           messages.deleted_at, users.display_name
+                    FROM messages
+                    JOIN users ON users.id = messages.user_id
+                    WHERE messages.id = %s AND messages.group_id = %s
+                    """,
+                    (reply_to_id, group_id),
+                ).fetchone()
+                if not reply:
+                    raise HTTPException(400, "Reply message is not in this group")
+            row = connection.execute(
+                """
+                INSERT INTO messages (
+                    user_id, group_id, body, created_at, reply_to_id,
+                    attachment_name, attachment_storage_name,
+                    attachment_content_type, attachment_size,
+                    attachment_duration_seconds
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    user["id"],
+                    group_id,
+                    clean_body,
+                    created_at,
+                    reply_to_id,
+                    original_name[:255],
+                    storage_name,
+                    content_type,
+                    size,
+                    attachment_duration_seconds,
+                ),
+            ).fetchone()
+            connection.execute(
+                """
+                UPDATE group_members SET last_read_message_id = %s
+                WHERE group_id = %s AND user_id = %s
+                """,
+                (row["id"], group_id, user["id"]),
+            )
+    except Exception:
+        storage_path.unlink(missing_ok=True)
+        raise
+
+    result = {
+        "id": row["id"],
+        "user_id": user["id"],
+        "recipient_id": None,
+        "group_id": group_id,
+        "display_name": user["display_name"],
+        "body": clean_body,
+        "created_at": created_at,
+        "delivered_at": None,
+        "read_at": None,
+        "reply_to_id": reply_to_id,
+        "reply_body": reply["body"] if reply else None,
+        "reply_attachment_name": reply["attachment_name"] if reply else None,
+        "reply_display_name": reply["display_name"] if reply else None,
+        "reply_deleted_at": reply["deleted_at"] if reply else None,
+        "edited_at": None,
+        "deleted_at": None,
+        "attachment_name": original_name[:255],
+        "attachment_content_type": content_type,
+        "attachment_size": size,
+        "attachment_duration_seconds": attachment_duration_seconds,
+        "attachment_url": f"/api/messages/{row['id']}/attachment",
+    }
+    await manager.send_to_users(
+        member_ids, {"type": "message", "message": result}
+    )
+    for member_id in member_ids - {user["id"]}:
+        await send_push(member_id, user, result)
     return result
 
 
@@ -1997,6 +2945,7 @@ def download_attachment(message_id: int, request: Request) -> FileResponse:
             SELECT
                 user_id,
                 recipient_id,
+                group_id,
                 attachment_name,
                 attachment_storage_name,
                 attachment_content_type,
@@ -2006,12 +2955,16 @@ def download_attachment(message_id: int, request: Request) -> FileResponse:
             """,
             (message_id,),
         ).fetchone()
-    if (
-        not row
-        or user["id"] not in {row["user_id"], row["recipient_id"]}
-        or not row["attachment_storage_name"]
-        or row["deleted_at"]
-    ):
+    allowed = False
+    if row:
+        if row["group_id"] is not None:
+            with db() as connection:
+                allowed = user["id"] in group_member_ids(
+                    connection, row["group_id"]
+                )
+        else:
+            allowed = user["id"] in {row["user_id"], row["recipient_id"]}
+    if not row or not allowed or not row["attachment_storage_name"] or row["deleted_at"]:
         raise HTTPException(404, "Attachment not found")
     path = settings.upload_dir / row["attachment_storage_name"]
     if not path.is_file():
@@ -2022,7 +2975,7 @@ def download_attachment(message_id: int, request: Request) -> FileResponse:
         filename=row["attachment_name"],
         content_disposition_type=(
             "inline"
-            if row["attachment_content_type"].startswith("image/")
+            if row["attachment_content_type"].startswith(("image/", "audio/"))
             else "attachment"
         ),
         headers={"X-Content-Type-Options": "nosniff"},
@@ -2044,7 +2997,7 @@ async def edit_message(
             UPDATE messages
             SET body = %s, edited_at = %s
             WHERE id = %s AND user_id = %s AND deleted_at IS NULL
-            RETURNING recipient_id
+            RETURNING recipient_id, group_id
             """,
             (body, edited_at, message_id, user["id"]),
         ).fetchone()
@@ -2056,7 +3009,13 @@ async def edit_message(
         "body": body,
         "edited_at": edited_at,
     }
-    await manager.send_to_users({user["id"], row["recipient_id"]}, payload)
+    with db() as connection:
+        recipients = (
+            group_member_ids(connection, row["group_id"])
+            if row["group_id"] is not None
+            else {user["id"], row["recipient_id"]}
+        )
+    await manager.send_to_users(recipients, payload)
     return payload
 
 
@@ -2070,7 +3029,7 @@ async def delete_message(message_id: int, request: Request) -> dict:
             UPDATE messages
             SET body = '', deleted_at = %s, edited_at = NULL
             WHERE id = %s AND user_id = %s AND deleted_at IS NULL
-            RETURNING recipient_id, attachment_storage_name
+            RETURNING recipient_id, group_id, attachment_storage_name
             """,
             (deleted_at, message_id, user["id"]),
         ).fetchone()
@@ -2085,7 +3044,13 @@ async def delete_message(message_id: int, request: Request) -> dict:
         "message_id": message_id,
         "deleted_at": deleted_at,
     }
-    await manager.send_to_users({user["id"], row["recipient_id"]}, payload)
+    with db() as connection:
+        recipients = (
+            group_member_ids(connection, row["group_id"])
+            if row["group_id"] is not None
+            else {user["id"], row["recipient_id"]}
+        )
+    await manager.send_to_users(recipients, payload)
     return payload
 
 
@@ -2131,6 +3096,23 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         while True:
             event = await websocket.receive_json()
             if event.get("type") != "typing":
+                continue
+            group_id = event.get("group_id")
+            if isinstance(group_id, int):
+                with db() as connection:
+                    member_ids = require_group_member(
+                        connection, group_id, user["id"]
+                    )
+                await manager.send_to_users(
+                    member_ids - {user["id"]},
+                    {
+                        "type": "typing",
+                        "user_id": user["id"],
+                        "display_name": user["display_name"],
+                        "group_id": group_id,
+                        "is_typing": bool(event.get("is_typing")),
+                    },
+                )
                 continue
             recipient_id = event.get("recipient_id")
             if not isinstance(recipient_id, int) or recipient_id == user["id"]:

@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     session_age_seconds: int = Field(default=60 * 60 * 24 * 30, gt=0)
     session_cookie_secure: bool = False
     max_attachment_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
+    max_voice_seconds: int = Field(default=300, ge=5, le=1800)
+    image_max_dimension: int = Field(default=1920, ge=640, le=4096)
+    image_compression_quality: float = Field(default=0.82, ge=0.5, le=0.95)
     max_avatar_bytes: int = Field(default=2 * 1024 * 1024, gt=0)
     vapid_private_key: str | None = None
     vapid_public_key: str | None = None
